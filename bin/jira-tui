@@ -1,0 +1,22 @@
+#!/usr/bin/env luajit
+-- entry: resolve repo lua/ dir regardless of cwd or symlink, then run
+
+local function script_dir()
+  local src = debug.getinfo(1, "S").source:sub(2)
+  -- resolve one level of symlink (e.g. ~/.local/bin/jira-tui -> repo/bin/jira-tui)
+  local ls = io.popen('readlink "' .. src .. '" 2>/dev/null')
+  local link = ls and ls:read("*l")
+  if ls then ls:close() end
+  if link and link ~= "" then
+    if link:sub(1, 1) ~= "/" then
+      link = src:match("(.*/)") .. link
+    end
+    src = link
+  end
+  return src:match("(.*/)") or "./"
+end
+
+local dir = script_dir()
+package.path = dir .. "../lua/?.lua;" .. dir .. "../lua/?/init.lua;" .. package.path
+
+os.exit(require("jira_tui.init").main(arg))
