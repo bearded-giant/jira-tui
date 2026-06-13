@@ -69,12 +69,8 @@ end
 local function pager(rows, cols, title, text)
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
-    -- soft-wrap long lines
-    while ansi.width(line) > cols - 2 do
-      lines[#lines + 1] = ansi.truncate(line, cols - 2)
-      line = line:sub(#ansi.truncate(line, cols - 2))
-      break
-    end
+    -- ponytail: hard-truncate overflow, no word-wrap. add wrap if descriptions need it.
+    if ansi.width(line) > cols - 1 then line = ansi.truncate(line, cols - 1) end
     lines[#lines + 1] = line
   end
   local top = 1

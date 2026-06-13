@@ -5,6 +5,9 @@ local M = {}
 
 local function write_tmp(content)
   local path = os.tmpname()
+  -- lock perms before the secret lands -- the -K file holds email:token
+  io.open(path, "w"):close()
+  os.execute(string.format("chmod 600 %q 2>/dev/null", path))
   local f = assert(io.open(path, "w"))
   f:write(content)
   f:close()
@@ -50,7 +53,11 @@ local function curl_request(method, endpoint, data)
     return nil, "curl failed"
   end
   if body == "" then
-    return true, nil -- 204 No Content (mutations)
+    -- empty is valid only for mutations (204). empty on a read = network/auth fail.
+    local is_mutation = method == "PUT"
+      or endpoint:find("/transitions") or endpoint:find("/worklog")
+    if is_mutation then return true, nil end
+    return nil, "empty response from jira (network, auth, or host?)"
   end
 
   local ok, result = pcall(json.decode, body)
