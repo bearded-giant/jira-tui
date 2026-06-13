@@ -75,7 +75,7 @@ function M.header(ctx, term_width)
   local view = ansi.sgr(" " .. (ctx.view or "") .. " ", ansi.fg.bright_yellow, ansi.BOLD)
   local proj = ctx.project and ansi.sgr(ctx.project, ansi.fg.cyan) or ""
   local count = ansi.sgr(string.format("%d issues", ctx.count or 0), ansi.fg.gray)
-  local right = ansi.sgr("[r]efresh [/]filter [S]print [B]acklog [J]ql [q]uit", ansi.fg.gray)
+  local right = ansi.sgr("[M]ine [S]print [B]acklog [J]ql [/]filter [r] [q]uit", ansi.fg.gray)
   local left = table.concat({ title, " ", view, " ", proj, "  ", count }, "")
   local pad = math.max(1, term_width - ansi.width(left:gsub("\27%[[%d;]*m", "")) - ansi.width(right:gsub("\27%[[%d;]*m", "")))
   return left .. string.rep(" ", pad) .. right

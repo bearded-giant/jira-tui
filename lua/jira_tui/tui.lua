@@ -94,6 +94,43 @@ local function pager(rows, cols, title, text)
   end
 end
 
+-- pick a jql from history or type a new one. returns the jql string or nil.
+-- history items keep their original (possibly multiline) text; display collapses it.
+local function jql_picker(rows, cols, history)
+  local sel = 1
+  local body = rows - 3
+  while true do
+    clear()
+    moveto(1, 1)
+    out(ansi.sgr(" JQL history ", ansi.fg.black, 47))
+    moveto(2, 1)
+    out(ansi.sgr("  enter: run    n: new query    q: cancel", ansi.fg.gray))
+    if #history == 0 then
+      moveto(4, 1)
+      out(ansi.sgr("  no history -- press n for a new query", ansi.fg.gray))
+    end
+    for i = 1, math.min(#history, body) do
+      moveto(i + 2, 1)
+      local label = ansi.truncate((history[i]:gsub("%s+", " ")), cols - 4)
+      local mark = i == sel and ansi.sgr("▌ ", ansi.fg.bright_cyan) or "  "
+      out("\27[K" .. mark .. (i == sel and ansi.sgr(label, ansi.BOLD) or label))
+    end
+    local k = read_key()
+    if k == "q" or k == "esc" then return nil end
+    if k == "n" or k == "/" then
+      local q = prompt(rows, "JQL> ", "")
+      return (q and q ~= "") and q or nil
+    end
+    if #history > 0 then
+      if (k == "j" or k == "down") and sel < #history then sel = sel + 1 end
+      if (k == "k" or k == "up") and sel > 1 then sel = sel - 1 end
+      if k == "g" then sel = 1 end
+      if k == "G" then sel = #history end
+      if k == "enter" then return history[sel] end
+    end
+  end
+end
+
 function M.run(opts)
   local state = {
     roots = {}, flat = {}, cursor = 1, scroll = 0,
@@ -106,7 +143,7 @@ function M.run(opts)
   end
 
   local function load(view, filter)
-    local issues, err = opts.load(view, filter)
+    local issues, err = opts.load(view, filter, state.project)
     if err then return err end
     state.view = view
     state.filter = filter
@@ -142,7 +179,7 @@ function M.run(opts)
 
     moveto(rows, 1)
     local hint = state.filter and ("filter: " .. state.filter .. "  ") or ""
-    out(ansi.sgr(hint .. "[o]toggle [t]all [K]detail [m]markdown [gx]open", ansi.fg.gray))
+    out(ansi.sgr(hint .. "[o]toggle [t]all [K]detail [x]open [p]roject", ansi.fg.gray))
   end
 
   local function cur_node()
@@ -191,14 +228,27 @@ function M.run(opts)
       elseif k == "r" then
         flash(rows, "refreshing…"); local e = load(state.view, state.filter)
         if e then flash(rows, "error: " .. e, ansi.fg.red); io.read(1) end
-      elseif k == "S" then
-        local e = load("Active Sprint", nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
-      elseif k == "B" then
-        local e = load("Backlog", nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
+      elseif k == "M" then
+        local e = load("My Issues", nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
+      elseif k == "S" or k == "B" then
+        local view = k == "S" and "Active Sprint" or "Backlog"
+        if not state.project then
+          flash(rows, "no project set -- press p to set one", ansi.fg.yellow); io.read(1)
+        else
+          local e = load(view, nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
+        end
+      elseif k == "p" then
+        local pk = prompt(rows, "project> ", state.project or "")
+        if pk and pk ~= "" then
+          state.project = pk:upper()
+          local e = load("Active Sprint", nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
+        end
       elseif k == "J" then
-        local jql = prompt(rows, "JQL> ", "")
-        if jql and jql ~= "" then
-          local e = load("JQL:" .. jql, nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
+        local q = jql_picker(rows, cols, opts.state and opts.state.data.jql_history or {})
+        if q and q ~= "" then
+          local e = load("JQL:" .. q, nil)
+          if e then flash(rows, e, ansi.fg.red); io.read(1)
+          elseif opts.state then opts.state.add_jql(q) end
         end
       elseif k == "/" then
         local f = prompt(rows, "filter> ", state.filter or "")
@@ -215,7 +265,7 @@ function M.run(opts)
           end
           pager(rows, cols, n.key .. "  " .. (n.summary or ""), md)
         end
-      elseif k == "x" or k == "gx" then
+      elseif k == "x" then
         local n = cur_node()
         if n then
           local url = require("jira_tui.config").options.jira.base .. "/browse/" .. n.key

@@ -99,5 +99,31 @@ do
   eq(model.adf_to_markdown(nil), "", "adf nil -> empty")
 end
 
+-- ---- my-issues jql builder ----
+do
+  eq(sprint.my_issues_jql(nil, nil),
+    "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC",
+    "my issues, no project scope")
+  eq(sprint.my_issues_jql({ "SEC", "PE", "ME" }, nil),
+    "project in (SEC, PE, ME) AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC",
+    "my issues scoped to projects")
+  ok(sprint.my_issues_jql({ "SEC" }, "auth"):find('summary ~ "auth"', 1, true), "my issues with filter")
+end
+
+-- ---- jql history dedup/cap (state) ----
+do
+  local state = require("jira_tui.state")
+  state.save = function() end -- don't touch disk in tests
+  state.data.jql_history = {}
+  state.add_jql("a")
+  state.add_jql("b")
+  state.add_jql("a") -- re-add moves to front, no dupe
+  eq(state.data.jql_history[1], "a", "re-added jql moves to front")
+  eq(#state.data.jql_history, 2, "no duplicate entries")
+  for i = 1, 60 do state.add_jql("q" .. i) end
+  ok(#state.data.jql_history <= 50, "history capped at 50")
+  eq(state.data.jql_history[1], "q60", "newest first")
+end
+
 io.write(string.format("\n%d passed, %d failed\n", pass, fail))
 os.exit(fail == 0 and 0 or 1)

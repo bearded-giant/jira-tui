@@ -91,6 +91,22 @@ function M.get_backlog_issues(project, filter)
   return fetch_all(project, jql .. " ORDER BY Rank ASC")
 end
 
+-- build the my-issues jql, optionally scoped to a project list (jim's my_issues_projects)
+function M.my_issues_jql(projects, filter)
+  local jql = "assignee = currentUser() AND statusCategory != Done"
+  if projects and #projects > 0 then
+    jql = string.format("project in (%s) AND ", table.concat(projects, ", ")) .. jql
+  end
+  if filter and filter ~= "" then
+    jql = jql .. string.format(' AND summary ~ "%s"', filter)
+  end
+  return jql .. " ORDER BY updated DESC"
+end
+
+function M.get_my_issues(projects, filter)
+  return fetch_all(nil, M.my_issues_jql(projects, filter))
+end
+
 -- a bare issue key (REF-372) is not valid jql on its own; rewrite to a key lookup
 function M.normalize_jql(jql)
   if not jql then return jql end

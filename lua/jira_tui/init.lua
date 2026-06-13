@@ -1,16 +1,16 @@
 local config = require("jira_tui.config")
 local sprint = require("jira_tui.sprint")
+local state = require("jira_tui.state")
 local tui = require("jira_tui.tui")
 
 local M = {}
 
-local function make_loader(project)
+local function make_loader(project, my_projects)
   return function(view, filter)
     if view == "Backlog" then
       return sprint.get_backlog_issues(project, filter)
     elseif view == "My Issues" then
-      local jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
-      return sprint.get_issues_by_jql(nil, jql)
+      return sprint.get_my_issues(my_projects, filter)
     elseif view:sub(1, 4) == "JQL:" then
       return sprint.get_issues_by_jql(project, view:sub(5))
     else -- Active Sprint
@@ -25,13 +25,17 @@ jira-tui — standalone terminal UI for Jira
 
 usage: jira-tui [PROJECT_KEY] [--backlog | --my | --jql "<jql>"]
 
+  no args -> opens My Issues (no project required).
+  PROJECT_KEY -> opens that project's active sprint.
+
 config: ]] .. config.config_path() .. [[ (lua table) or env
   JIRA_BASE   https://your-domain.atlassian.net
   JIRA_EMAIL  you@example.com
-  JIRA_TOKEN  api token
+  JIRA_TOKEN  api token (JIRA_API_TOKEN also accepted)
 
-keys: j/k move  o expand  t all  r refresh  S sprint  B backlog
-      J jql  / filter  K detail  x open  q quit
+keys: j/k move  o expand  t all  M my-issues  p set-project
+      S sprint  B backlog  J jql (history)  / filter  r refresh
+      K detail  x open  q quit
 ]])
 end
 
@@ -52,16 +56,18 @@ function M.main(argv)
   local ok, err = config.load()
   if not ok then io.stderr:write("jira-tui: " .. err .. "\n"); return 1 end
 
-  if not project and not jql and view ~= "My Issues" then
-    io.stderr:write("jira-tui: need a PROJECT_KEY (or --my / --jql)\n\n")
-    usage()
-    return 1
+  state.load()
+
+  -- no project + no explicit view -> My Issues. project is never forced.
+  if not view then
+    view = project and "Active Sprint" or "My Issues"
   end
 
   tui.run({
-    load = make_loader(project),
+    load = make_loader(project, state.data.my_issues_projects),
     project = project,
-    initial_view = view or "Active Sprint",
+    initial_view = view,
+    state = state,
   })
   return 0
 end

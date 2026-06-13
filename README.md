@@ -52,12 +52,15 @@ The launcher resolves its own location (following one symlink), so the symlink w
 ## Usage
 
 ```sh
+jira-tui                  # My Issues (no project needed)
 jira-tui REF              # active sprint for project REF
 jira-tui REF --backlog    # backlog
-jira-tui --my             # issues assigned to you, across projects
+jira-tui --my             # issues assigned to you (scoped to saved projects)
 jira-tui REF --jql "status = 'In Progress'"
 jira-tui --help           # flags + keys
 ```
+
+A project key is only needed for the sprint and backlog views. With no arguments it opens My Issues, and you move around from there, no project is ever forced on startup.
 
 ### Keys
 
@@ -67,8 +70,10 @@ jira-tui --help           # flags + keys
 | `g` / `G` | top / bottom |
 | `o` / `space` / `enter` | expand / collapse node |
 | `t` | toggle all |
+| `M` | My Issues (assigned to you) |
 | `S` / `B` | switch to Active Sprint / Backlog |
-| `J` | run a JQL query |
+| `p` | set / change the project (enables sprint + backlog) |
+| `J` | JQL history picker (or `n` for a new query) |
 | `/` | filter current view by summary |
 | `r` | refresh |
 | `K` / `m` | show issue description (markdown) |
@@ -109,6 +114,10 @@ There's no build step, it's pure Lua. Everything goes through `make`:
 | `make install` / `make uninstall` | manage the `~/.local/bin` symlink |
 
 Tests live in `test/run.lua`, a no-framework harness that exits non-zero on any failure, so it doubles as the CI gate. It covers the JSON parser, JQL normalization, tree building, ANSI width math, time formatting, and ADF conversion. CI runs lint plus tests on Lua 5.1 / 5.3 / 5.4 and LuaJIT for every push to `main` and every pull request.
+
+## State
+
+JQL history and your My Issues project list persist to `~/.local/share/jira-tui/state.json`. On first run, if that file is empty, both are seeded from jim.nvim's state (`~/.local/share/nvim/jim_nvim.json`), so an existing jim setup carries its `my_issues_projects` and `jql_history` straight over. New queries you run in the TUI are saved back to the TUI's own file, jim's is only ever read.
 
 ## Status
 
