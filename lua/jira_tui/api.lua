@@ -18,14 +18,10 @@ local function q(s)
   return '"' .. tostring(s):gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
 end
 
--- synchronous curl. secrets + body go through a -K config file and a data file
--- so the token never lands in argv/ps and the shell never sees user input.
-local function curl_request(method, endpoint, data)
-  local env = config.options.jira
-  if env.base == "" or env.email == "" or env.token == "" then
-    return nil, "missing jira config"
-  end
-
+-- build the curl -K config lines. exposed for testing the quoting.
+-- @ must be inside the quotes; curl -K reads `data = "@/path"` as a file ref,
+-- whereas `data = @"/path"` makes curl open a file literally named "/path".
+function M._config_lines(env, method, endpoint, datafile)
   local lines = {
     "silent",
     "url = " .. q(env.base .. endpoint),
@@ -34,14 +30,26 @@ local function curl_request(method, endpoint, data)
     'header = "Content-Type: application/json"',
     'header = "Accept: application/json"',
   }
+  if datafile then
+    lines[#lines + 1] = "data = " .. q("@" .. datafile)
+  end
+  return lines
+end
+
+-- synchronous curl. secrets + body go through a -K config file and a data file
+-- so the token never lands in argv/ps and the shell never sees user input.
+local function curl_request(method, endpoint, data)
+  local env = config.options.jira
+  if env.base == "" or env.email == "" or env.token == "" then
+    return nil, "missing jira config"
+  end
 
   local datafile
   if data then
     datafile = write_tmp(json.encode(data))
-    lines[#lines + 1] = "data = @" .. q(datafile)
   end
 
-  local cfgfile = write_tmp(table.concat(lines, "\n") .. "\n")
+  local cfgfile = write_tmp(table.concat(M._config_lines(env, method, endpoint, datafile), "\n") .. "\n")
   local pipe = io.popen("curl -K " .. q(cfgfile) .. " 2>/dev/null", "r")
   local body = pipe and pipe:read("*a") or ""
   local ok_close = pipe and pipe:close()

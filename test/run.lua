@@ -125,5 +125,23 @@ do
   eq(state.data.jql_history[1], "q60", "newest first")
 end
 
+-- ---- curl -K config quoting (regression: data = "@/path", @ inside quotes) ----
+do
+  local api = require("jira_tui.api")
+  local lines = api._config_lines(
+    { base = "https://x.atlassian.net", email = "e@x.com", token = "tok" },
+    "POST", "/rest/api/3/search/jql", "/tmp/data.json")
+  local data_line, url_line
+  for _, l in ipairs(lines) do
+    if l:sub(1, 4) == "data" then data_line = l end
+    if l:sub(1, 3) == "url" then url_line = l end
+  end
+  eq(data_line, 'data = "@/tmp/data.json"', "data line wraps @path inside quotes")
+  eq(url_line, 'url = "https://x.atlassian.net/rest/api/3/search/jql"', "url line quoted")
+  -- no data file -> no data line
+  local nolines = api._config_lines({ base = "b", email = "e", token = "t" }, "GET", "/x", nil)
+  for _, l in ipairs(nolines) do ok(l:sub(1, 4) ~= "data", "GET has no data line") end
+end
+
 io.write(string.format("\n%d passed, %d failed\n", pass, fail))
 os.exit(fail == 0 and 0 or 1)
