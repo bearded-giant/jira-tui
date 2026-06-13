@@ -56,6 +56,7 @@ jira-tui REF              # active sprint for project REF
 jira-tui REF --backlog    # backlog
 jira-tui --my             # issues assigned to you, across projects
 jira-tui REF --jql "status = 'In Progress'"
+jira-tui --help           # flags + keys
 ```
 
 ### Keys
@@ -73,6 +74,8 @@ jira-tui REF --jql "status = 'In Progress'"
 | `K` / `m` | show issue description (markdown) |
 | `x` | open issue in browser |
 | `q` | quit |
+
+`/` opens a prompt; submit empty to clear the filter. In the detail view, `j`/`k` scroll and `q` returns to the board.
 
 ## Layout
 
