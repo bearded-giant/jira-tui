@@ -1,14 +1,16 @@
 # jira-tui
 
-A standalone terminal UI for Jira — sprint board, backlog, and JQL queries with an expandable issue tree. It's a port of the [jim.nvim](https://github.com/bearded-giant/jim.nvim) Neovim plugin's core into a process you can run on its own, no editor required.
+[![CI](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml)
+
+A standalone terminal UI for Jira: sprint board, backlog, and JQL queries rendered as an expandable issue tree. It's a port of the [jim.nvim](https://github.com/bearded-giant/jim.nvim) Neovim plugin's core, lifted out of the editor so you can run the same board as its own process.
 
 ## Why
 
-jim.nvim's JIRA logic (the REST client, the parent/child tree builder, the ADF-to-markdown converter) was all perfectly good Lua trapped inside Neovim. This pulls that core out and puts a plain ANSI front-end on it, so you get the same board outside the editor.
+jim.nvim's Jira logic, the REST client, the parent/child tree builder, the ADF-to-markdown converter, was all good Lua trapped inside Neovim. This pulls that core out, strips the `vim.*` calls, and puts a plain ANSI front-end on it. Same board, no editor required.
 
 ## Requirements
 
-LuaJIT (or Lua 5.1+) and `curl`. That's it — JSON parsing is vendored, so there's nothing to `luarocks install`. On macOS: `brew install luajit`.
+LuaJIT (or Lua 5.1+) and `curl`. Nothing else, JSON parsing is vendored, so there's no `luarocks install` step. On macOS that's `brew install luajit`.
 
 ## Setup
 
@@ -20,7 +22,7 @@ export JIRA_EMAIL=you@example.com
 export JIRA_TOKEN=your_api_token   # https://id.atlassian.com/manage-profile/security/api-tokens
 ```
 
-Or drop a config file at `~/.config/jira-tui/config.lua` that returns a table (env vars override it, so you can keep the token out of the file):
+Or drop a config file at `~/.config/jira-tui/config.lua` that returns a table. Environment variables override the file, so you can keep the token out of the dotfile and commit the rest:
 
 ```lua
 return {
@@ -37,13 +39,13 @@ return {
 
 ## Install
 
-Symlink the launcher somewhere on your `PATH`:
-
 ```sh
-ln -s "$PWD/bin/jira-tui" ~/.local/bin/jira-tui
+git clone https://github.com/bearded-giant/jira-tui.git
+cd jira-tui
+make install        # symlinks bin/jira-tui into ~/.local/bin
 ```
 
-The launcher resolves its own location (following one symlink), so the symlink works fine.
+The launcher resolves its own location (following one symlink), so the symlink works from anywhere on your `PATH`. Prefer a different prefix? `make install PREFIX=/usr/local`.
 
 ## Usage
 
@@ -86,14 +88,27 @@ lua/jira_tui/
 bin/jira-tui   entry (luajit)
 ```
 
-The Jira-facing modules (`api`, `sprint`, `model`) are front-end agnostic — the same shape jim.nvim uses, minus the `vim.*` calls. If you want to add a different front-end later, that's the seam.
+The Jira-facing modules (`api`, `sprint`, `model`) are front-end agnostic, the same shape jim.nvim uses minus the `vim.*` calls. If you want a different front-end later, that's the seam.
+
+## Development
+
+There's no build step, it's pure Lua. Everything goes through `make`:
+
+| Target | What it does |
+|--------|--------------|
+| `make test` | run the test suite on LuaJIT (`make test LUA=lua` for stock Lua) |
+| `make test-all` | run tests on both luajit and lua |
+| `make lint` | luacheck (`luarocks install luacheck` first) |
+| `make check` | lint + test |
+| `make run ARGS="REF"` | run the TUI |
+| `make install` / `make uninstall` | manage the `~/.local/bin` symlink |
+
+Tests live in `test/run.lua`, a no-framework harness that exits non-zero on any failure, so it doubles as the CI gate. It covers the JSON parser, JQL normalization, tree building, ANSI width math, time formatting, and ADF conversion. CI runs lint plus tests on Lua 5.1 / 5.3 / 5.4 and LuaJIT for every push to `main` and every pull request.
 
 ## Status
 
-MVP: view, navigate, JQL, filter, read descriptions. Editing, status changes, and creating issues live in the nvim plugin for now — not yet ported.
+MVP: view, navigate, JQL, filter, read descriptions. Editing, status changes, assignment, and creating issues still live in the nvim plugin, not yet ported.
 
-## Test
+## Credits
 
-```sh
-luajit test/run.lua
-```
+A [Bearded Giant](https://github.com/bearded-giant) project, ported from [jim.nvim](https://github.com/bearded-giant/jim.nvim).

@@ -68,10 +68,10 @@ end
 -- scrollable markdown pager for issue detail
 local function pager(rows, cols, title, text)
   local lines = {}
-  for line in (text .. "\n"):gmatch("(.-)\n") do
+  for raw in (text .. "\n"):gmatch("(.-)\n") do
     -- ponytail: hard-truncate overflow, no word-wrap. add wrap if descriptions need it.
-    if ansi.width(line) > cols - 1 then line = ansi.truncate(line, cols - 1) end
-    lines[#lines + 1] = line
+    -- (don't reassign the for-var -- it's const in lua 5.4+)
+    lines[#lines + 1] = ansi.width(raw) > cols - 1 and ansi.truncate(raw, cols - 1) or raw
   end
   local top = 1
   local body = rows - 2

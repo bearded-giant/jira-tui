@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lua: ["5.1", "5.3", "5.4", "luajit-2.1"]
+    name: lua ${{ matrix.lua }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: ${{ matrix.lua }}
+
+      - uses: leafo/gh-actions-luarocks@v4
+
+      - name: install luacheck
+        run: luarocks install luacheck
+
+      - name: lint
+        run: luacheck lua bin test
+
+      - name: test
+        run: lua test/run.lua

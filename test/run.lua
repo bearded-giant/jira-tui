@@ -1,51 +1,103 @@
--- smallest check that fails if the core logic breaks. run: luajit test/run.lua
+-- no-framework test harness. run: luajit test/run.lua  (exit 1 on any failure)
 package.path = "lua/?.lua;" .. package.path
+
+local pass, fail = 0, 0
+local function ok(cond, msg)
+  if cond then
+    pass = pass + 1
+  else
+    fail = fail + 1
+    io.write("  FAIL: " .. tostring(msg) .. "\n")
+  end
+end
+local function eq(a, b, msg)
+  ok(a == b, (msg or "") .. " -- expected " .. tostring(b) .. " got " .. tostring(a))
+end
 
 local json = require("jira_tui.json")
 local model = require("jira_tui.model")
+local ansi = require("jira_tui.ansi")
+local sprint = require("jira_tui.sprint")
 
-local function eq(a, b, msg) assert(a == b, (msg or "") .. " expected " .. tostring(b) .. " got " .. tostring(a)) end
+-- ---- json ----
+do
+  local d = json.decode([[{"a":1,"b":[true,false,null],"c":{"d":"x\n"},"n":-2.5,"e":2e3}]])
+  eq(d.a, 1, "json int")
+  eq(d.b[1], true, "json true")
+  eq(d.b[2], false, "json false")
+  eq(d.b[3], nil, "json null -> nil")
+  eq(d.c.d, "x\n", "json escaped newline")
+  eq(d.n, -2.5, "json negative float")
+  eq(d.e, 2000, "json exponent")
+  eq(#json.decode("[]"), 0, "json empty array")
+  eq(next(json.decode("{}")), nil, "json empty object")
+  eq(json.decode([["A"]]), "A", "json unicode escape")
+  local rt = json.decode(json.encode({ x = 1, y = "z", arr = { 1, 2, 3 } }))
+  eq(rt.y, "z", "json roundtrip string")
+  eq(rt.arr[3], 3, "json roundtrip array")
+  ok(not pcall(json.decode, "{bad}"), "json rejects garbage")
+end
 
--- json round-trip + nested + null->nil
-local doc = json.decode([[{"a":1,"b":[true,false,null],"c":{"d":"x\n"},"n":-2.5}]])
-eq(doc.a, 1, "num")
-eq(doc.b[1], true, "bool")
-eq(doc.b[3], nil, "null->nil")
-eq(doc.c.d, "x\n", "escaped string")
-eq(doc.n, -2.5, "neg float")
-eq(json.decode(json.encode({ x = 1, y = "z" })).y, "z", "encode/decode roundtrip")
+-- ---- normalize_jql ----
+do
+  eq(sprint.normalize_jql("REF-372"), "key = REF-372", "bare key -> lookup")
+  eq(sprint.normalize_jql("ref-5"), "key = REF-5", "bare key uppercased")
+  eq(sprint.normalize_jql("project = X"), "project = X", "real jql passthrough")
+  eq(sprint.normalize_jql("  ABC-1  "), "key = ABC-1", "trims then matches")
+  eq(sprint.normalize_jql(""), "", "empty passthrough")
+end
 
--- tree build: child attaches under parent, orphan becomes root
-local issues = {
-  { key = "A-1", summary = "root", parent = nil, time_spent = 7200, type = "Story" },
-  { key = "A-2", summary = "child", parent = "A-1", type = "Sub-task" },
-  { key = "A-3", summary = "orphan", parent = "A-9", type = "Bug" },
-}
-local roots = model.build_issue_tree(issues)
-eq(#roots, 2, "two roots (A-1, orphan A-3)")
-eq(roots[1].key, "A-1", "first root order preserved")
-eq(#roots[1].children, 1, "A-1 has one child")
-eq(roots[1].children[1].key, "A-2", "child is A-2")
+-- ---- ansi width / truncate / pad ----
+do
+  eq(ansi.width("hello"), 5, "ascii width")
+  eq(ansi.width("héllo"), 5, "multibyte counts codepoints")
+  eq(ansi.truncate("hello", 10), "hello", "truncate noop when short")
+  eq(ansi.width(ansi.truncate("hello world", 5)), 5, "truncate to width incl ellipsis")
+  ok(ansi.truncate("hello world", 5):find("…"), "truncate adds ellipsis")
+  eq(ansi.width(ansi.pad("hi", 6)), 6, "pad to width")
+  eq(ansi.pad("toolong", 3), "toolong", "pad noop when over")
+end
 
--- flatten respects expanded
-roots[1].expanded = false
-eq(#model.flatten(roots), 2, "collapsed: only roots visible")
-roots[1].expanded = true
-eq(#model.flatten(roots), 3, "expanded: child visible")
+-- ---- model tree / flatten / time ----
+do
+  local issues = {
+    { key = "A-1", summary = "root", parent = nil, time_spent = 7200, type = "Story" },
+    { key = "A-2", summary = "child", parent = "A-1", type = "Sub-task" },
+    { key = "A-3", summary = "orphan parent missing", parent = "A-9", type = "Bug" },
+  }
+  local roots = model.build_issue_tree(issues)
+  eq(#roots, 2, "two roots (A-1 + orphan)")
+  eq(roots[1].key, "A-1", "order preserved")
+  eq(#roots[1].children, 1, "A-1 one child")
+  eq(roots[1].children[1].key, "A-2", "child is A-2")
 
--- time format
-eq(model.format_time(7200), "2", "2h integer")
-eq(model.format_time(5400), "1.5", "1.5h")
-eq(model.format_time(0), "0", "zero")
-eq(model.format_time(nil), "0", "nil")
+  roots[1].expanded = false
+  eq(#model.flatten(roots), 2, "collapsed hides child")
+  roots[1].expanded = true
+  eq(#model.flatten(roots), 3, "expanded shows child")
+  eq(model.flatten(roots)[2].depth, 2, "child depth 2")
 
--- adf -> markdown
-local adf = {
-  type = "doc",
-  content = {
-    { type = "paragraph", content = { { type = "text", text = "hi", marks = { { type = "strong" } } } } },
-  },
-}
-assert(model.adf_to_markdown(adf):find("**hi**", 1, true), "adf bold")
+  eq(model.format_time(7200), "2", "2h integer")
+  eq(model.format_time(5400), "1.5", "1.5h")
+  eq(model.format_time(0), "0", "zero")
+  eq(model.format_time(nil), "0", "nil")
+end
 
-print("ok: all checks passed")
+-- ---- adf -> markdown ----
+do
+  local function md(content)
+    return model.adf_to_markdown({ type = "doc", content = content })
+  end
+  ok(md({ { type = "paragraph", content = { { type = "text", text = "hi", marks = { { type = "strong" } } } } } })
+    :find("**hi**", 1, true), "adf bold")
+  ok(md({ { type = "heading", attrs = { level = 2 }, content = { { type = "text", text = "H" } } } })
+    :find("## H", 1, true), "adf heading")
+  ok(md({ { type = "bulletList", content = { { type = "listItem", content = { { type = "text", text = "x" } } } } } })
+    :find("- x", 1, true), "adf bullet")
+  ok(md({ { type = "codeBlock", attrs = { language = "lua" }, content = { { type = "text", text = "y" } } } })
+    :find("```lua", 1, true), "adf codeblock")
+  eq(model.adf_to_markdown(nil), "", "adf nil -> empty")
+end
+
+io.write(string.format("\n%d passed, %d failed\n", pass, fail))
+os.exit(fail == 0 and 0 or 1)
