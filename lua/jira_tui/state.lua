@@ -2,7 +2,7 @@ local json = require("jira_tui.json")
 
 local M = {}
 
-M.data = { jql_history = {} }
+M.data = { jql_history = {}, last_view = nil, last_project = nil, hide_resolved = true }
 
 local HISTORY_CAP = 50
 
@@ -24,7 +24,12 @@ end
 
 function M.load()
   local own = read_json(M.state_path())
-  if own then M.data.jql_history = own.jql_history or {} end
+  if own then
+    M.data.jql_history = own.jql_history or {}
+    M.data.last_view = own.last_view
+    M.data.last_project = own.last_project
+    if own.hide_resolved ~= nil then M.data.hide_resolved = own.hide_resolved end
+  end
   return M.data
 end
 
@@ -35,6 +40,12 @@ function M.save()
   if not f then return end
   f:write(json.encode(M.data))
   f:close()
+end
+
+function M.remember(view, project)
+  M.data.last_view = view
+  if project then M.data.last_project = project end
+  M.save()
 end
 
 -- prepend, dedupe, cap. persists.

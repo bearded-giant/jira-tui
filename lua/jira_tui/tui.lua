@@ -1,281 +1,229 @@
-local model = require("jira_tui.model")
+local term = require("jira_tui.term")
 local render = require("jira_tui.render")
+local ui = require("jira_tui.ui")
 local ansi = require("jira_tui.ansi")
 local api = require("jira_tui.api")
+local model = require("jira_tui.model")
 
 local M = {}
+local C = ansi.color
 
-local out = io.write
-
-local function term_size()
-  local p = io.popen("stty size 2>/dev/null")
-  local s = p and p:read("*a") or ""
-  if p then p:close() end
-  local rows, cols = s:match("(%d+)%s+(%d+)")
-  return tonumber(rows) or 24, tonumber(cols) or 80
-end
-
-local function raw_on() os.execute("stty raw -echo 2>/dev/null") end
-local function raw_off() os.execute("stty sane 2>/dev/null") end
-local function alt_on() out("\27[?1049h\27[?25l") end
-local function alt_off() out("\27[?1049l\27[?25h") end
-local function clear() out("\27[2J\27[H") end
-local function moveto(r, c) out("\27[" .. r .. ";" .. (c or 1) .. "H") end
-
-local function read_key()
-  local c = io.read(1)
-  if not c then return "q" end
-  if c == "\27" then
-    local c2 = io.read(1)
-    if c2 == "[" then
-      local c3 = io.read(1)
-      local map = { A = "up", B = "down", C = "right", D = "left" }
-      return map[c3] or "esc"
-    end
-    return "esc"
-  end
-  if c == "\13" or c == "\10" then return "enter" end
-  if c == " " then return "space" end
-  if c == "\3" then return "q" end -- ctrl-c
-  return c
-end
-
--- one-line input at the bottom row; returns string or nil if cancelled (esc)
-local function prompt(rows, label, initial)
-  local buf = initial or ""
-  while true do
-    moveto(rows, 1)
-    out("\27[K" .. ansi.sgr(label, ansi.fg.bright_yellow) .. buf .. "\27[K")
-    local c = io.read(1)
-    if not c then return nil end
-    if c == "\13" or c == "\10" then return buf end
-    if c == "\27" then return nil end
-    if c == "\127" or c == "\8" then
-      buf = buf:sub(1, -2)
-    elseif c == "\3" then
-      return nil
-    elseif c:byte() >= 32 then
-      buf = buf .. c
-    end
-  end
-end
-
-local function flash(rows, msg, color)
-  moveto(rows, 1)
-  out("\27[K" .. ansi.sgr(msg, color or ansi.fg.bright_yellow))
-end
-
--- scrollable markdown pager for issue detail
-local function pager(rows, cols, title, text)
-  local lines = {}
-  for raw in (text .. "\n"):gmatch("(.-)\n") do
-    -- ponytail: hard-truncate overflow, no word-wrap. add wrap if descriptions need it.
-    -- (don't reassign the for-var -- it's const in lua 5.4+)
-    lines[#lines + 1] = ansi.width(raw) > cols - 1 and ansi.truncate(raw, cols - 1) or raw
-  end
-  local top = 1
-  local body = rows - 2
-  while true do
-    clear()
-    moveto(1, 1)
-    out(ansi.sgr(" " .. title .. " ", ansi.fg.black, 47))
-    for i = 0, body - 1 do
-      moveto(i + 2, 1)
-      out("\27[K" .. (lines[top + i] or ""))
-    end
-    moveto(rows, 1)
-    out(ansi.sgr(" j/k scroll  q back ", ansi.fg.gray))
-    local k = read_key()
-    if k == "q" or k == "esc" then return end
-    if (k == "j" or k == "down") and top < #lines - body + 1 then top = top + 1 end
-    if (k == "k" or k == "up") and top > 1 then top = top - 1 end
-    if k == "g" then top = 1 end
-    if k == "G" then top = math.max(1, #lines - body + 1) end
-  end
-end
-
--- pick a jql from history or type a new one. returns the jql string or nil.
--- history items keep their original (possibly multiline) text; display collapses it.
-local function jql_picker(rows, cols, history)
-  local sel = 1
-  local body = rows - 3
-  while true do
-    clear()
-    moveto(1, 1)
-    out(ansi.sgr(" JQL history ", ansi.fg.black, 47))
-    moveto(2, 1)
-    out(ansi.sgr("  enter: run    n: new query    q: cancel", ansi.fg.gray))
-    if #history == 0 then
-      moveto(4, 1)
-      out(ansi.sgr("  no history -- press n for a new query", ansi.fg.gray))
-    end
-    for i = 1, math.min(#history, body) do
-      moveto(i + 2, 1)
-      local label = ansi.truncate((history[i]:gsub("%s+", " ")), cols - 4)
-      local mark = i == sel and ansi.sgr("▌ ", ansi.fg.bright_cyan) or "  "
-      out("\27[K" .. mark .. (i == sel and ansi.sgr(label, ansi.BOLD) or label))
-    end
-    local k = read_key()
-    if k == "q" or k == "esc" then return nil end
-    if k == "n" or k == "/" then
-      local q = prompt(rows, "JQL> ", "")
-      return (q and q ~= "") and q or nil
-    end
-    if #history > 0 then
-      if (k == "j" or k == "down") and sel < #history then sel = sel + 1 end
-      if (k == "k" or k == "up") and sel > 1 then sel = sel - 1 end
-      if k == "g" then sel = 1 end
-      if k == "G" then sel = #history end
-      if k == "enter" then return history[sel] end
-    end
-  end
+local function sort_roots(roots, col, dir)
+  local field = ({ time = "time_spent", points = "story_points" })[col] or col
+  table.sort(roots, function(a, b)
+    local va, vb = a[field], b[field]
+    if va == vb then return false end
+    if va == nil then return dir == "asc" end
+    if vb == nil then return dir ~= "asc" end
+    if type(va) ~= type(vb) then va, vb = tostring(va), tostring(vb) end
+    if dir == "desc" then return va > vb end
+    return va < vb
+  end)
 end
 
 function M.run(opts)
-  local state = {
-    roots = {}, flat = {}, cursor = 1, scroll = 0,
+  local persist = opts.state
+  local st = {
     view = opts.initial_view, project = opts.project, filter = nil,
+    roots = {}, flat = {}, cursor = 1, scroll = 0,
+    sort_col = nil, sort_dir = nil, raw = {}, message = nil,
+    hide_resolved = persist and persist.data.hide_resolved,
   }
+  if st.hide_resolved == nil then st.hide_resolved = true end
 
   local function reflatten()
-    state.flat = model.flatten(state.roots)
-    if state.cursor > #state.flat then state.cursor = math.max(1, #state.flat) end
+    st.flat = model.flatten(st.roots)
+    if st.cursor > #st.flat then st.cursor = math.max(1, #st.flat) end
+    if st.cursor < 1 then st.cursor = 1 end
   end
 
-  local function load(view, filter)
-    local issues, err = opts.load(view, filter, state.project)
-    if err then return err end
-    state.view = view
-    state.filter = filter
-    state.roots = model.build_issue_tree(issues or {})
-    -- expand roots that have children so the board isn't all collapsed
-    for _, n in ipairs(state.roots) do
+  local function rebuild()
+    local issues = {}
+    for _, iss in ipairs(st.raw) do
+      if not (st.hide_resolved and iss.status_category == "Done") then issues[#issues + 1] = iss end
+    end
+    st.roots = model.build_issue_tree(issues)
+    if st.sort_col then sort_roots(st.roots, st.sort_col, st.sort_dir) end
+    for _, n in ipairs(st.roots) do
       if n.children and #n.children > 0 then n.expanded = true end
     end
-    state.cursor = 1
-    state.scroll = 0
     reflatten()
-    return nil
   end
 
-  local function draw()
-    local rows, cols = term_size()
-    local body = rows - 2
-    if state.cursor <= state.scroll then state.scroll = state.cursor - 1 end
-    if state.cursor > state.scroll + body then state.scroll = state.cursor - body end
-    if state.scroll < 0 then state.scroll = 0 end
-
-    clear()
-    moveto(1, 1)
-    out(render.header({ view = state.view, project = state.project, count = #state.flat }, cols))
-
-    for i = 1, body do
-      local idx = state.scroll + i
-      local entry = state.flat[idx]
-      moveto(i + 1, 1)
-      out("\27[K")
-      if entry then out(render.issue_line(entry, cols, idx == state.cursor)) end
-    end
-
-    moveto(rows, 1)
-    local hint = state.filter and ("filter: " .. state.filter .. "  ") or ""
-    out(ansi.sgr(hint .. "[o]toggle [t]all [K]detail [x]open [p]roject", ansi.fg.gray))
+  local function load_view(view, filter)
+    local issues, err = opts.load(view, filter, st.project)
+    if err then st.message = err; return false end
+    st.view, st.filter, st.raw = view, filter, issues or {}
+    st.cursor, st.scroll, st.message = 1, 0, nil
+    rebuild()
+    if persist then persist.remember(view, st.project) end
+    return true
   end
 
   local function cur_node()
-    local e = state.flat[state.cursor]
+    local e = st.flat[st.cursor]
     return e and e.node
   end
 
-  local function toggle_all(expand)
-    local function walk(nodes)
-      for _, n in ipairs(nodes) do
-        if n.children and #n.children > 0 then n.expanded = expand; walk(n.children) end
+  local function draw()
+    local rows, cols = term.size()
+    local bw = math.max(48, math.min(math.floor(cols * 0.94), 200))
+    local bh = math.max(12, math.min(math.floor(rows * 0.92), 60))
+    local top = math.max(1, math.floor((rows - bh) / 2))
+    local left = math.max(1, math.floor((cols - bw) / 2))
+    local iw, cw = bw - 2, bw - 4
+    term.clear()
+    local title = "jira-tui — " .. st.view ..
+      (st.project and ("  ·  " .. st.project) or "") .. "   (" .. #st.flat .. ")"
+    ui.draw_box(top, left, bw, bh, title)
+    local function put(r, s) term.moveto(top + r, left + 1); term.out(s) end
+    put(1, render.tab_bar(st.view, st.hidden))
+    put(2, render.hint_line(st.view, st.filter))
+
+    if st.view == "Help" then
+      local hl = ui.help_lines(iw)
+      for i = 1, bh - 4 do put(2 + i, hl[i] or "") end
+    else
+      put(3, render.column_header(cw, st.sort_col, st.sort_dir))
+      local body = bh - 2 - 4
+      if st.cursor <= st.scroll then st.scroll = st.cursor - 1 end
+      if st.cursor > st.scroll + body then st.scroll = st.cursor - body end
+      if st.scroll < 0 then st.scroll = 0 end
+      for i = 1, body do
+        local idx = st.scroll + i
+        local e = st.flat[idx]
+        put(3 + i, e and render.issue_line(e.node, e.depth, cw, idx == st.cursor) or "")
       end
     end
-    walk(state.roots)
+
+    if st.message then
+      term.moveto(top + bh - 1, left + 3)
+      term.out(ansi.bgtext(" " .. ansi.truncate(st.message, bw - 8) .. " ", C.base, C.red, ansi.BOLD))
+    end
   end
 
-  raw_on(); alt_on()
-  local ok, err = pcall(function()
-    local initial_err = load(state.view, nil)
-    if initial_err then
-      local rows = term_size()
-      flash(rows, "load error: " .. initial_err, ansi.fg.red)
-      io.read(1)
-    end
+  local function toggle_all(expand)
+    local function walk(ns) for _, n in ipairs(ns) do
+      if n.children and #n.children > 0 then n.expanded = expand; walk(n.children) end
+    end end
+    walk(st.roots)
+  end
 
-    local all_expanded = true
+  local function ensure_project()
+    if st.project then return true end
+    local p = ui.input("Project key", { value = (persist and persist.data.last_project) or "", width = 40 })
+    if p and p ~= "" then st.project = p:upper(); return true end
+    return false
+  end
+
+  local function run_jql(q)
+    if not q or q == "" then return end
+    if load_view("JQL:" .. q) and persist then persist.add_jql(q) end
+  end
+
+  local function open_browser(n)
+    if not n then return end
+    local url = require("jira_tui.config").options.jira.base .. "/browse/" .. n.key
+    os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", url, url))
+  end
+
+  term.raw_on(); term.enter()
+  local ok, err = pcall(function()
+    load_view(st.view, nil)
+
     while true do
       draw()
-      local rows, cols = term_size()
-      local k = read_key()
+      local k = term.read_key()
+      local n = cur_node()
 
-      if k == "q" then break
-      elseif k == "j" or k == "down" then
-        if state.cursor < #state.flat then state.cursor = state.cursor + 1 end
-      elseif k == "k" or k == "up" then
-        if state.cursor > 1 then state.cursor = state.cursor - 1 end
-      elseif k == "g" then state.cursor = 1
-      elseif k == "G" then state.cursor = #state.flat
-      elseif k == "o" or k == "space" or k == "enter" then
-        local n = cur_node()
+      if k == "q" or k == "esc" then break
+      elseif k == "j" or k == "down" or k == "wheeldown" then
+        if st.cursor < #st.flat then st.cursor = st.cursor + 1 end
+      elseif k == "k" or k == "up" or k == "wheelup" then
+        if st.cursor > 1 then st.cursor = st.cursor - 1 end
+      elseif k == "G" then st.cursor = #st.flat
+      elseif k == "o" or k == " " or k == "enter" or k == "tab" then
         if n and n.children and #n.children > 0 then n.expanded = not n.expanded; reflatten() end
       elseif k == "t" then
-        all_expanded = not all_expanded
-        toggle_all(all_expanded)
-        reflatten()
-      elseif k == "r" then
-        flash(rows, "refreshing…"); local e = load(state.view, state.filter)
-        if e then flash(rows, "error: " .. e, ansi.fg.red); io.read(1) end
-      elseif k == "M" then
-        local e = load("My Issues", nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
-      elseif k == "S" or k == "B" then
-        local view = k == "S" and "Active Sprint" or "Backlog"
-        if not state.project then
-          flash(rows, "no project set -- press p to set one", ansi.fg.yellow); io.read(1)
-        else
-          local e = load(view, nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
-        end
+        local any = false
+        for _, r in ipairs(st.roots) do if r.expanded then any = true end end
+        toggle_all(not any); reflatten()
+      elseif k == "M" then load_view("My Issues", nil)
+      elseif k == "S" then if ensure_project() then load_view("Active Sprint", nil) end
+      elseif k == "B" then if ensure_project() then load_view("Backlog", nil) end
       elseif k == "p" then
-        local pk = prompt(rows, "project> ", state.project or "")
-        if pk and pk ~= "" then
-          state.project = pk:upper()
-          local e = load("Active Sprint", nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end
-        end
+        local p = ui.input("Project key", { value = st.project or "", width = 40 })
+        if p and p ~= "" then st.project = p:upper(); load_view("Active Sprint", nil) end
       elseif k == "J" then
-        local q = jql_picker(rows, cols, opts.state and opts.state.data.jql_history or {})
-        if q and q ~= "" then
-          local e = load("JQL:" .. q, nil)
-          if e then flash(rows, e, ansi.fg.red); io.read(1)
-          elseif opts.state then opts.state.add_jql(q) end
+        local hist = (persist and persist.data.jql_history) or {}
+        if #hist == 0 then
+          run_jql(ui.input("New JQL", { multiline = true }))
+        else
+          local choice = ui.select("JQL history  (Esc: cancel)", hist,
+            { format = function(s) return (s:gsub("%s+", " ")) end })
+          if choice then run_jql(choice) end
         end
+      elseif k == "H" then st.view = "Help"; st.message = nil
       elseif k == "/" then
-        local f = prompt(rows, "filter> ", state.filter or "")
-        if f ~= nil then local e = load(state.view, f ~= "" and f or nil); if e then flash(rows, e, ansi.fg.red); io.read(1) end end
-      elseif k == "K" or k == "m" then
-        local n = cur_node()
-        if n then
-          flash(rows, "loading " .. n.key .. "…")
-          local issue = api.get_issue(n.key)
-          local md = "(no description)"
-          if type(issue) == "table" and issue.fields then
-            md = model.adf_to_markdown(issue.fields.description)
-            if md == "" then md = "(no description)" end
-          end
-          pager(rows, cols, n.key .. "  " .. (n.summary or ""), md)
-        end
+        local f = ui.input("Filter (summary ~)", { value = st.filter or "", width = 50 })
+        if f ~= nil then load_view(st.view == "Help" and "My Issues" or st.view, f ~= "" and f or nil) end
+      elseif k == "bs" then if st.filter then load_view(st.view, nil) end
       elseif k == "x" then
-        local n = cur_node()
+        st.hide_resolved = not st.hide_resolved
+        if persist then persist.data.hide_resolved = st.hide_resolved; persist.save() end
+        rebuild()
+      elseif k == "K" or k == "m" then
         if n then
-          local url = require("jira_tui.config").options.jira.base .. "/browse/" .. n.key
-          os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", url, url))
+          st.message = "loading " .. n.key .. "…"; draw()
+          local issue = api.get_issue(n.key)
+          local md = (type(issue) == "table" and issue.fields)
+            and model.adf_to_markdown(issue.fields.description) or ""
+          if md == "" then md = "(no description)" end
+          st.message = nil
+          ui.detail(n.key .. "  " .. (n.summary or ""), md)
         end
+      elseif k == "y" then
+        if n then
+          os.execute(string.format("printf %%s %q | pbcopy 2>/dev/null", n.key))
+          st.message = "copied " .. n.key
+        end
+      elseif k == "r" then load_view(st.view, st.filter)
+      elseif k == "left" or k == "right" then
+        local order = { "My Issues", "JQL", "Active Sprint", "Backlog", "Help" }
+        local idx = 1
+        for i, v in ipairs(order) do if v == st.view then idx = i end end
+        idx = ((idx - 1 + (k == "right" and 1 or -1)) % #order) + 1
+        local nv = order[idx]
+        if nv == "Active Sprint" or nv == "Backlog" then
+          if ensure_project() then load_view(nv, nil) end
+        elseif nv == "JQL" then
+          local last = persist and persist.data.jql_history[1]
+          if last then run_jql(last) else run_jql(ui.input("New JQL", { multiline = true })) end
+        elseif nv == "Help" then st.view = "Help"; st.message = nil
+        else load_view(nv, nil) end
+      elseif k == "g" then
+        local nk = term.read_key()
+        if nk == "g" then st.cursor = 1
+        elseif nk == "x" then open_browser(n)
+        elseif nk == "j" then run_jql(ui.input("New JQL", { multiline = true }))
+        elseif nk == "s" then
+          local cols = { { f = "key", l = "Key" }, { f = "summary", l = "Title" },
+            { f = "assignee", l = "Assignee" }, { f = "time", l = "Time" }, { f = "status", l = "Status" } }
+          local choice = ui.select("Sort by", cols, { format = function(c) return c.l end })
+          if choice then
+            if st.sort_col ~= choice.f then st.sort_col, st.sort_dir = choice.f, "asc"
+            elseif st.sort_dir == "asc" then st.sort_dir = "desc"
+            else st.sort_col, st.sort_dir = nil, nil end
+            rebuild()
+          end
+        end
+      elseif k == "s" or k == "c" or k == "d" or k == "e" or k == "a" then
+        st.message = "'" .. k .. "' (edit/create/status/assign) lives in the nvim plugin, not the TUI"
       end
     end
   end)
 
-  alt_off(); raw_off()
+  term.leave(); term.raw_off()
   if not ok then io.stderr:write("jira-tui crashed: " .. tostring(err) .. "\n") end
 end
 

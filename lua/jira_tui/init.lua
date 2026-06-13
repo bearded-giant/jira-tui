@@ -58,9 +58,18 @@ function M.main(argv)
 
   state.load()
 
-  -- no project + no explicit view -> My Issues. project is never forced.
+  -- project defaults to last-used so Sprint/Backlog have a target
+  project = project or state.data.last_project
+
+  -- view: explicit flag > project arg > restored last_view > My Issues
   if not view then
-    view = project and "Active Sprint" or "My Issues"
+    if project and state.data.last_view == "Active Sprint" then
+      view = "Active Sprint"
+    elseif project and state.data.last_view == "Backlog" then
+      view = "Backlog"
+    else
+      view = "My Issues"
+    end
   end
 
   tui.run({
