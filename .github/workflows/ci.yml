@@ -6,27 +6,34 @@ on:
   pull_request:
 
 jobs:
-  test:
+  lint-and-test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        lua: ["5.1", "5.3", "5.4", "luajit-2.1.0-beta3"]
+        lua: ["5.1", "5.3", "5.4"]
     name: lua ${{ matrix.lua }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: leafo/gh-actions-lua@v10
         with:
           luaVersion: ${{ matrix.lua }}
-
       - uses: leafo/gh-actions-luarocks@v4
-
       - name: install luacheck
         run: luarocks install luacheck
-
       - name: lint
         run: luacheck lua bin test
-
       - name: test
         run: lua test/run.lua
+
+  # luajit is the primary runtime; the lua-setup action can't fetch it
+  # reliably, so install from apt and just run the suite (lint covered above).
+  luajit:
+    runs-on: ubuntu-latest
+    name: luajit
+    steps:
+      - uses: actions/checkout@v4
+      - name: install luajit
+        run: sudo apt-get update && sudo apt-get install -y luajit
+      - name: test
+        run: luajit test/run.lua
