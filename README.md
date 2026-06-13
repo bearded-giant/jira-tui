@@ -2,11 +2,7 @@
 
 [![CI](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml)
 
-A standalone terminal UI for Jira: sprint board, backlog, and JQL queries rendered as an expandable issue tree. It's a port of the [jim.nvim](https://github.com/bearded-giant/jim.nvim) Neovim plugin's core, lifted out of the editor so you can run the same board as its own process.
-
-## Why
-
-jim.nvim's Jira logic, the REST client, the parent/child tree builder, the ADF-to-markdown converter, was all good Lua trapped inside Neovim. This pulls that core out, strips the `vim.*` calls, and puts a plain ANSI front-end on it. Same board, no editor required.
+A standalone terminal UI for Jira: sprint board, backlog, and JQL queries rendered as an expandable issue tree. Browse your work without leaving the terminal.
 
 ## Requirements
 
@@ -22,7 +18,7 @@ export JIRA_EMAIL=you@example.com
 export JIRA_TOKEN=your_api_token   # https://id.atlassian.com/manage-profile/security/api-tokens
 ```
 
-`JIRA_API_TOKEN` is also accepted for the token (that's the variable jim.nvim uses), so an existing jim.nvim shell setup works as-is once `JIRA_BASE` is set.
+`JIRA_API_TOKEN` is accepted as an alias for `JIRA_TOKEN`, whichever you already have set works.
 
 Or drop a config file at `~/.config/jira-tui/config.lua` that returns a table. Environment variables override the file, so you can keep the token out of the dotfile and commit the rest:
 
@@ -36,6 +32,8 @@ return {
   projects = {
     REF = { story_point_field = "customfield_10035" },
   },
+  -- scope the My Issues view to these projects (empty = all projects)
+  my_issues_projects = { "ABC", "DEF" },
 }
 ```
 
@@ -98,7 +96,7 @@ lua/jira_tui/
 bin/jira-tui   entry (luajit)
 ```
 
-The Jira-facing modules (`api`, `sprint`, `model`) are front-end agnostic, the same shape jim.nvim uses minus the `vim.*` calls. If you want a different front-end later, that's the seam.
+The Jira-facing modules (`api`, `sprint`, `model`) are front-end agnostic, no terminal code in them. If you want a different front-end later, that's the seam.
 
 ## Development
 
@@ -117,12 +115,12 @@ Tests live in `test/run.lua`, a no-framework harness that exits non-zero on any 
 
 ## State
 
-JQL history and your My Issues project list persist to `~/.local/share/jira-tui/state.json`. On first run, if that file is empty, both are seeded from jim.nvim's state (`~/.local/share/nvim/jim_nvim.json`), so an existing jim setup carries its `my_issues_projects` and `jql_history` straight over. New queries you run in the TUI are saved back to the TUI's own file, jim's is only ever read.
+Everything lives under `~/.config/jira-tui/`. Settings go in `config.lua`; the JQL history you build up in the `J` picker is saved to `state.json` (deduped, newest first, capped at 50). The `My Issues` project scope is the `my_issues_projects` list in `config.lua`.
 
 ## Status
 
-MVP: view, navigate, JQL, filter, read descriptions. Editing, status changes, assignment, and creating issues still live in the nvim plugin, not yet ported.
+MVP: view, navigate, JQL, filter, read descriptions. Editing, status changes, assignment, and creating issues are not implemented yet.
 
 ## Credits
 
-A [Bearded Giant](https://github.com/bearded-giant) project, ported from [jim.nvim](https://github.com/bearded-giant/jim.nvim).
+A [Bearded Giant](https://github.com/bearded-giant) project.

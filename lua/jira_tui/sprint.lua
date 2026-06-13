@@ -91,7 +91,7 @@ function M.get_backlog_issues(project, filter)
   return fetch_all(project, jql .. " ORDER BY Rank ASC")
 end
 
--- build the my-issues jql, optionally scoped to a project list (jim's my_issues_projects)
+-- build the my-issues jql, optionally scoped to a configured project list
 function M.my_issues_jql(projects, filter)
   local jql = "assignee = currentUser() AND statusCategory != Done"
   if projects and #projects > 0 then

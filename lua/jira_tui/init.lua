@@ -64,7 +64,7 @@ function M.main(argv)
   end
 
   tui.run({
-    load = make_loader(project, state.data.my_issues_projects),
+    load = make_loader(project, config.options.my_issues_projects),
     project = project,
     initial_view = view,
     state = state,

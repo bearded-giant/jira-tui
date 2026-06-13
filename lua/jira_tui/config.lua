@@ -8,6 +8,7 @@ local FALLBACKS = {
 M.options = {
   jira = { base = "", email = "", token = "", limit = 500 },
   projects = {},
+  my_issues_projects = {},
 }
 
 function M.config_path()
@@ -26,13 +27,14 @@ function M.load()
     if ok and type(user) == "table" then
       for k, v in pairs(user.jira or {}) do M.options.jira[k] = v end
       M.options.projects = user.projects or {}
+      M.options.my_issues_projects = user.my_issues_projects or {}
     end
   end
 
   local env = M.options.jira
   env.base = os.getenv("JIRA_BASE") or env.base
   env.email = os.getenv("JIRA_EMAIL") or env.email
-  -- JIRA_API_TOKEN is the var jim.nvim uses -- accept it so existing setups work
+  -- accept either common env var name for the token
   env.token = os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN") or env.token
 
   if env.base == "" or env.email == "" or env.token == "" then
