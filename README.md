@@ -22,6 +22,8 @@ export JIRA_EMAIL=you@example.com
 export JIRA_TOKEN=your_api_token   # https://id.atlassian.com/manage-profile/security/api-tokens
 ```
 
+`JIRA_API_TOKEN` is also accepted for the token (that's the variable jim.nvim uses), so an existing jim.nvim shell setup works as-is once `JIRA_BASE` is set.
+
 Or drop a config file at `~/.config/jira-tui/config.lua` that returns a table. Environment variables override the file, so you can keep the token out of the dotfile and commit the rest:
 
 ```lua

@@ -32,10 +32,11 @@ function M.load()
   local env = M.options.jira
   env.base = os.getenv("JIRA_BASE") or env.base
   env.email = os.getenv("JIRA_EMAIL") or env.email
-  env.token = os.getenv("JIRA_TOKEN") or env.token
+  -- JIRA_API_TOKEN is the var jim.nvim uses -- accept it so existing setups work
+  env.token = os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN") or env.token
 
   if env.base == "" or env.email == "" or env.token == "" then
-    return nil, "missing jira config. set JIRA_BASE/JIRA_EMAIL/JIRA_TOKEN or write " .. path
+    return nil, "missing jira config. set JIRA_BASE + JIRA_EMAIL + JIRA_TOKEN (or JIRA_API_TOKEN), or write " .. path
   end
   -- strip trailing slash so endpoint concat is clean
   env.base = env.base:gsub("/+$", "")
