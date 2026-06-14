@@ -36,11 +36,11 @@ end
 function M.flatten(roots, with_spacers)
   local out = {}
   local function walk(nodes, depth)
-    for _, node in ipairs(nodes) do
+    for i, node in ipairs(nodes) do
       if with_spacers and depth == 1 and #out > 0 then
         out[#out + 1] = { spacer = true }
       end
-      out[#out + 1] = { node = node, depth = depth }
+      out[#out + 1] = { node = node, depth = depth, last = i == #nodes }
       if node.expanded and node.children and #node.children > 0 then
         walk(node.children, depth + 1)
       end

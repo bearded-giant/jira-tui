@@ -124,7 +124,8 @@ function M.run(opts)
       for i = 1, body do
         local e = st.flat[st.scroll + i]
         row(body_top + i - 1,
-          (e and not e.spacer) and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor) or "")
+          (e and not e.spacer)
+          and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor, e.last) or "")
       end
     end
 

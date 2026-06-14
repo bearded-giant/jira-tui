@@ -107,19 +107,26 @@ end
 
 -- ---- one issue row ----
 -- returns the full ANSI line. selected draws a colored gutter bar.
-function M.issue_line(node, depth, board_w, selected)
+function M.issue_line(node, depth, board_w, selected, is_last)
   local sw = M.summary_width(board_w - 2)
   local is_root = depth == 1
-  local indent = string.rep("    ", depth - 1)
+  local indent = string.rep("  ", depth - 1)
 
-  local chevron = " "
-  if node.children and #node.children > 0 then chevron = node.expanded and "" or "" end
+  -- lead glyph: roots get an expand chevron, children get a tree connector
+  local lead, sep
+  if is_root then
+    sep = " "
+    lead = (node.children and #node.children > 0) and (node.expanded and "" or "") or " "
+  else
+    sep = "─"
+    lead = is_last and "└" or "├"
+  end
   local icon, icon_c = type_icon(node.type)
-  local prefix_used = ansi.width(chevron) + 1 + ansi.width(icon)
+  local prefix_used = ansi.width(lead) + ansi.width(sep) + ansi.width(icon)
   local prefix_pad = string.rep(" ", math.max(1, PREFIX_W - prefix_used))
 
   -- summary shrinks with depth so trailing cols stay aligned
-  local summary_w = math.max(10, sw - 4 * (depth - 1))
+  local summary_w = math.max(10, sw - 2 * (depth - 1))
 
   -- key
   local key = is_root and ansi.fgtext(ansi.fit(node.key or "", M.COL.key), C.text, ansi.BOLD)
@@ -148,7 +155,7 @@ function M.issue_line(node, depth, board_w, selected)
   local gutter = selected and ansi.fgtext("▌", C.sky, ansi.BOLD) .. " " or "  "
   return table.concat({
     gutter, indent,
-    ansi.fgtext(chevron, C.overlay), " ", ansi.fgtext(icon, icon_c), prefix_pad,
+    ansi.fgtext(lead .. sep, C.overlay), ansi.fgtext(icon, icon_c), prefix_pad,
     key, "  ", summary, "  ", assignee, "  ", time_cell, "  ", status,
   })
 end
