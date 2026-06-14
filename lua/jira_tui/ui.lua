@@ -159,15 +159,15 @@ local HELP = {
     { "M", "My Issues" }, { "S", "Active Sprint" }, { "B", "Backlog" },
     { "→ / ←", "Cycle tabs" }, { "p", "Set / change project" },
   } },
-  { "JQL", { { "J", "Run / pick from history" }, { "gj", "New query" } } },
+  { "JQL", { { "J", "Pick from history / new" }, { "gj", "New query" } } },
   { "Navigation", {
-    { "j / k", "Move (mouse wheel too)" }, { "o / ⏎ / Tab", "Expand / collapse" },
+    { "j / k", "Move (mouse wheel too)" }, { "⏎ / Space / Tab", "Expand / collapse" },
     { "t", "Toggle all" }, { "/", "Filter by summary" }, { "BS", "Clear filter" },
-    { "g / G", "Top / bottom" }, { "x", "Show/hide resolved" },
+    { "gg / G", "Top / bottom" }, { "x", "Show/hide resolved" },
   } },
   { "Issue", {
-    { "K", "Details popup" }, { "m", "Read as markdown" },
-    { "gx", "Open in browser" }, { "y", "Copy key" }, { "gs", "Sort column" },
+    { "K / m", "Details / markdown" }, { "b", "Open in browser" },
+    { "y", "Copy key" }, { "gs", "Sort column" },
   } },
   { "General", { { "r", "Refresh" }, { "H", "Help" }, { "q / Esc", "Quit" } } },
 }

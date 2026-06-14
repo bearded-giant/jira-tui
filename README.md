@@ -34,6 +34,8 @@ return {
   },
   -- scope the My Issues view to these projects (empty = all projects)
   my_issues_projects = { "ABC", "DEF" },
+  -- tabs to hide from the strip (My Issues never hides)
+  hidden_tabs = { "Active Sprint", "Backlog" },
 }
 ```
 
@@ -73,19 +75,22 @@ A project key is only needed for the sprint and backlog views. With no arguments
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` (or arrows) | move cursor |
-| `g` / `G` | top / bottom |
-| `o` / `space` / `enter` | expand / collapse node |
+| `j` / `k` (or arrows, mouse wheel) | move cursor |
+| `gg` / `G` | top / bottom |
+| `enter` / `space` / `tab` | expand / collapse node |
 | `t` | toggle all |
 | `M` | My Issues (assigned to you) |
-| `S` / `B` | switch to Active Sprint / Backlog |
-| `p` | set / change the project (enables sprint + backlog) |
-| `J` | JQL history picker (or `n` for a new query) |
-| `/` | filter current view by summary |
+| `S` / `B` | Active Sprint / Backlog |
+| `p` | set / change the project (for sprint + backlog) |
+| `J` | JQL picker (history, or new query) · `gj` new query |
+| `gs` | sort by column |
+| `/` | filter by summary · `BS` clear |
+| `x` | show / hide resolved |
+| `K` / `m` | issue detail / markdown |
+| `b` | open issue in browser |
+| `y` | copy issue key |
 | `r` | refresh |
-| `K` / `m` | show issue description (markdown) |
-| `x` | open issue in browser |
-| `q` | quit |
+| `q` / `Esc` | quit |
 
 `/` opens a prompt; submit empty to clear the filter. In the detail view, `j`/`k` scroll and `q` returns to the board.
 

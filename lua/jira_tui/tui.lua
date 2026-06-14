@@ -282,7 +282,7 @@ function M.run(opts)
           end
         end
       elseif k == "s" or k == "c" or k == "d" or k == "e" or k == "a" then
-        st.message = "'" .. k .. "' (edit/create/status/assign) lives in the nvim plugin, not the TUI"
+        st.message = "edit / create / status / assign not implemented yet"
       end
       draw()
       end
