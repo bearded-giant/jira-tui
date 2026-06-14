@@ -43,9 +43,18 @@ return {
 git clone https://github.com/bearded-giant/jira-tui.git
 cd jira-tui
 make install        # symlinks bin/jira-tui into ~/.local/bin
+jira-tui            # now on your PATH
 ```
 
-The launcher resolves its own location (following one symlink), so the symlink works from anywhere on your `PATH`. Prefer a different prefix? `make install PREFIX=/usr/local`.
+`make install` symlinks `bin/jira-tui` into `~/.local/bin`. The launcher resolves its own location (following the symlink), so it finds the repo from anywhere. Make sure `~/.local/bin` is on your `PATH`:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # or ~/.zshrc
+```
+
+Prefer a system location already on `PATH`? `make install PREFIX=/usr/local` (drops the symlink in `/usr/local/bin`; may need `sudo`). Remove it later with `make uninstall`.
+
+Keep the repo where it is, the symlink points back to it; `git pull` updates the installed command in place.
 
 ## Usage
 
