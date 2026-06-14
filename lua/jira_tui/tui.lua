@@ -81,41 +81,38 @@ function M.run(opts)
     return e and not e.spacer and e.node or nil
   end
 
-  -- one buffered write. layout has breathing room:
-  -- chrome(title) / blank / tabs / blank / column-header / list / keybinds / footer
+  -- diff renderer: build every board row, emit only the rows that changed.
+  -- a cursor move repaints ~2 rows, not the whole screen -> no flicker, cheap.
+  st.prev = st.prev or {}
   draw = function()
     local rows, cols = term.size()
-    local buf = {}
-    if rows ~= st.rows or cols ~= st.cols then
-      st.rows, st.cols = rows, cols
-      buf[#buf + 1] = "\27[2J"
+    local full = false
+    if rows ~= st.rows or cols ~= st.cols or ui.consume_dirty() then
+      st.rows, st.cols, st.prev, full = rows, cols, {}, true
     end
     local bw = math.max(50, cols - 2)
     local bh = math.max(14, rows - 2)
     local top = math.max(1, math.floor((rows - bh) / 2))
     local left = math.max(1, math.floor((cols - bw) / 2))
     local iw = bw - 2
-    local function at(r, c) return "\27[" .. (top + r) .. ";" .. (left + c) .. "H" end
-    local function row(r, content)
-      buf[#buf + 1] = at(r, 0) .. ansi.fgtext("│", C.sky) .. ansi.padline(content, iw) .. ansi.fgtext("│", C.sky)
-    end
+    local sky = ansi.fgtext("│", C.sky)
+    local function interior(content) return sky .. ansi.padline(content, iw) .. sky end
 
-    -- top border + title (chrome)
+    local frame = {} -- frame[r] = full row string (relative row 0..bh-1)
     local title = "jira-tui — " .. st.view ..
       (st.project and ("  ·  " .. st.project) or "") .. "   (" .. st.count .. ")"
     local t = " " .. title .. " "
-    buf[#buf + 1] = at(0, 0) .. ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
+    frame[0] = ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
       .. ansi.fgtext(string.rep("─", math.max(0, bw - 3 - ansi.width(t))) .. "╮", C.sky)
-
-    row(1, "")
-    row(2, render.tab_bar(st.view, st.hidden))
-    row(3, "")
+    frame[1] = interior("")
+    frame[2] = interior(render.tab_bar(st.view, st.hidden))
+    frame[3] = interior("")
 
     if st.view == "Help" then
       local hl = ui.help_lines(iw)
-      for r = 4, bh - 3 do row(r, hl[r - 3] or "") end
+      for r = 4, bh - 3 do frame[r] = interior(hl[r - 3] or "") end
     else
-      row(4, render.column_header(iw, st.sort_col, st.sort_dir))
+      frame[4] = interior(render.column_header(iw, st.sort_col, st.sort_dir))
       local body_top, body_bot = 5, bh - 3
       local body = body_bot - body_top + 1
       if st.cursor <= st.scroll then st.scroll = st.cursor - 1 end
@@ -123,28 +120,32 @@ function M.run(opts)
       if st.scroll < 0 then st.scroll = 0 end
       for i = 1, body do
         local e = st.flat[st.scroll + i]
-        row(body_top + i - 1,
-          (e and not e.spacer)
+        frame[body_top + i - 1] = interior((e and not e.spacer)
           and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor, e.last) or "")
       end
     end
 
-    -- keybinds (moved to the bottom) + transient message
-    row(bh - 2, st.message
+    frame[bh - 2] = interior(st.message
       and ansi.bgtext("  " .. ansi.truncate(st.message, bw - 6) .. " ", C.base, C.red, ansi.BOLD)
       or render.hint_line(st.view, st.filter))
 
-    -- footer border: loading (lower-left), version (lower-right)
     local vtxt = " v" .. version .. " "
     local ltxt = st.loading and (" ● " .. st.loading .. " ") or ""
     local fill = math.max(0, bw - 2 - ansi.width(ltxt) - ansi.width(vtxt))
-    buf[#buf + 1] = at(bh - 1, 0) .. ansi.fgtext("╰", C.sky)
+    frame[bh - 1] = ansi.fgtext("╰", C.sky)
       .. (ltxt ~= "" and ansi.fgtext(ltxt, C.yellow, ansi.BOLD) or "")
       .. ansi.fgtext(string.rep("─", fill), C.sky)
-      .. ansi.fgtext(vtxt, C.overlay)
-      .. ansi.fgtext("╯", C.sky)
+      .. ansi.fgtext(vtxt, C.overlay) .. ansi.fgtext("╯", C.sky)
 
-    term.out(table.concat(buf))
+    local buf = {}
+    if full then buf[#buf + 1] = "\27[2J" end
+    for r = 0, bh - 1 do
+      if frame[r] ~= st.prev[r] then
+        buf[#buf + 1] = "\27[" .. (top + r) .. ";" .. (left) .. "H" .. frame[r]
+        st.prev[r] = frame[r]
+      end
+    end
+    if #buf > 0 then term.out(table.concat(buf)) end
   end
 
   local function toggle_all(expand)
@@ -201,8 +202,10 @@ function M.run(opts)
       local n = cur_node()
 
       if k == "q" or k == "esc" then break
-      elseif k == "j" or k == "down" or k == "wheeldown" then st.cursor = step(st.cursor, 1)
-      elseif k == "k" or k == "up" or k == "wheelup" then st.cursor = step(st.cursor, -1)
+      elseif k == "j" or k == "down" then st.cursor = step(st.cursor, 1)
+      elseif k == "k" or k == "up" then st.cursor = step(st.cursor, -1)
+      elseif k == "wheeldown" then for _ = 1, 3 do st.cursor = step(st.cursor, 1) end
+      elseif k == "wheelup" then for _ = 1, 3 do st.cursor = step(st.cursor, -1) end
       elseif k == "G" then st.cursor = step(#st.flat + 1, -1)
       elseif k == "o" or k == " " or k == "enter" or k == "tab" then
         if n and n.children and #n.children > 0 then n.expanded = not n.expanded; reflatten() end

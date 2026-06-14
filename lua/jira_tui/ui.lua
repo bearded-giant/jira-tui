@@ -4,6 +4,10 @@ local ansi = require("jira_tui.ansi")
 local M = {}
 local C = ansi.color
 
+-- modals overlay the board; set on open so the diff renderer forces a full repaint after
+M._dirty = false
+function M.consume_dirty() local d = M._dirty; M._dirty = false; return d end
+
 local function trim(s) return (s:gsub("^%s*(.-)%s*$", "%1")) end
 
 local function center(rows, cols, w, h)
@@ -34,6 +38,7 @@ M.center = center
 
 -- text input modal. opts: {value, multiline, width, height, hint}. returns string or nil (cancel).
 function M.input(title, opts)
+  M._dirty = true
   opts = opts or {}
   local rows, cols = term.size()
   local w = math.min(opts.width or 76, cols - 6)
@@ -78,6 +83,7 @@ end
 
 -- select modal. items list, opts.format(item)->string. returns item, index or nil.
 function M.select(title, items, opts)
+  M._dirty = true
   opts = opts or {}
   local fmt = opts.format or tostring
   local rows, cols = term.size()
@@ -119,6 +125,7 @@ end
 
 -- scrollable read-only detail box. text may contain newlines.
 function M.detail(title, text)
+  M._dirty = true
   local rows, cols = term.size()
   local w = math.min(96, cols - 2)
   local h = rows - 2

@@ -4,10 +4,12 @@ local model = require("jira_tui.model")
 local M = {}
 
 local C = ansi.color
-local PREFIX_W = 7
+local GUTTER = 2     -- selection bar / spaces
+local ROOT_PREFIX = 3 -- chevron + icon + space, before the key (icon sits next to key)
+local CHILD_INDENT = 4 -- spaces per nesting level for subtasks
 
 M.COL = {
-  key = 12, assignee = 12, time = 16, status = 14, summary_max = 60,
+  key = 12, assignee = 12, time = 16, status = 14,
 }
 
 M.TABS = { -- order + hint key, matches jim
@@ -19,9 +21,9 @@ M.TABS = { -- order + hint key, matches jim
 }
 
 -- summary flex width -- fills available space (no hard cap) so columns span the board
-function M.summary_width(board_w)
+function M.summary_width(iw)
   local fixed = M.COL.key + M.COL.assignee + M.COL.time + M.COL.status
-  local available = board_w - PREFIX_W - fixed - (2 * 4) - 2
+  local available = iw - GUTTER - ROOT_PREFIX - fixed - (2 * 4)
   return math.max(20, available)
 end
 
@@ -75,13 +77,13 @@ end
 
 -- ---- column header ----
 function M.column_header(board_w, sort_col, sort_dir)
-  local sw = M.summary_width(board_w - 2)
+  local sw = M.summary_width(board_w)
   local cells = {
     { "Key", M.COL.key }, { "Title", sw }, { "Assignee", M.COL.assignee },
     { "Time", M.COL.time }, { "Status", M.COL.status },
   }
   local fields = { "key", "summary", "assignee", "time", "status" }
-  local line = "  " .. string.rep(" ", PREFIX_W)
+  local line = string.rep(" ", GUTTER + ROOT_PREFIX)
   for i, c in ipairs(cells) do
     local label = c[1]
     if sort_col == fields[i] then label = label .. (sort_dir == "asc" and " ▲" or " ▼") end
@@ -108,25 +110,27 @@ end
 -- ---- one issue row ----
 -- returns the full ANSI line. selected draws a colored gutter bar.
 function M.issue_line(node, depth, board_w, selected, is_last)
-  local sw = M.summary_width(board_w - 2)
+  local sw = M.summary_width(board_w)
   local is_root = depth == 1
-  local indent = string.rep("  ", depth - 1)
-
-  -- lead glyph: roots get an expand chevron, children get a tree connector
-  local lead, sep
-  if is_root then
-    sep = " "
-    lead = (node.children and #node.children > 0) and (node.expanded and "" or "") or " "
-  else
-    sep = "─"
-    lead = is_last and "└" or "├"
-  end
   local icon, icon_c = type_icon(node.type)
-  local prefix_used = ansi.width(lead) + ansi.width(sep) + ansi.width(icon)
-  local prefix_pad = string.rep(" ", math.max(1, PREFIX_W - prefix_used))
 
-  -- summary shrinks with depth so trailing cols stay aligned
-  local summary_w = math.max(10, sw - 2 * (depth - 1))
+  -- prefix sits between the gutter and the key; icon ends right before the key
+  -- (one space). roots: chevron+icon. children: indent + connector + icon.
+  local prefix, used
+  if is_root then
+    local chev = (node.children and #node.children > 0) and (node.expanded and "" or "") or " "
+    prefix = ansi.fgtext(chev, C.overlay) .. ansi.fgtext(icon, icon_c) .. " "
+    used = 3
+  else
+    local indent = string.rep(" ", CHILD_INDENT * (depth - 1))
+    local conn = is_last and "└─" or "├─"
+    prefix = indent .. ansi.fgtext(conn, C.overlay) .. ansi.fgtext(icon, icon_c) .. " "
+    used = #indent + 4
+  end
+
+  -- shrink summary by however far this row's prefix exceeds a root prefix, so
+  -- the trailing columns stay aligned across depths
+  local summary_w = math.max(10, sw - (used - ROOT_PREFIX))
 
   -- key
   local key = is_root and ansi.fgtext(ansi.fit(node.key or "", M.COL.key), C.text, ansi.BOLD)
@@ -154,8 +158,7 @@ function M.issue_line(node, depth, board_w, selected, is_last)
 
   local gutter = selected and ansi.fgtext("▌", C.sky, ansi.BOLD) .. " " or "  "
   return table.concat({
-    gutter, indent,
-    ansi.fgtext(lead .. sep, C.overlay), ansi.fgtext(icon, icon_c), prefix_pad,
+    gutter, prefix,
     key, "  ", summary, "  ", assignee, "  ", time_cell, "  ", status,
   })
 end
