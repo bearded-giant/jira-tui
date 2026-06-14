@@ -32,6 +32,9 @@ function M.run(opts)
     rows = 24, cols = 80,
   }
   if st.hide_resolved == nil then st.hide_resolved = true end
+  st.my_projects = opts.my_projects or {}
+  st.hidden = {}
+  for _, name in ipairs(opts.hidden_tabs or {}) do st.hidden[name] = true end
   st.rows, st.cols = term.size()
   local draw -- forward decl (load_view shows a loading footer via draw)
 
@@ -99,13 +102,16 @@ function M.run(opts)
     local function interior(content) return sky .. ansi.padline(content, iw) .. sky end
 
     local frame = {} -- frame[r] = full row string (relative row 0..bh-1)
-    local title = "jira-tui — " .. st.view ..
-      (st.project and ("  ·  " .. st.project) or "") .. "   (" .. st.count .. ")"
+    local module = st.view:gsub("^JQL:.*", "JQL")
+    local proj = st.project
+      or (st.view == "My Issues" and #st.my_projects > 0 and table.concat(st.my_projects, ",") or nil)
+      or "all"
+    local title = module .. "   - Project: " .. proj .. "   (" .. st.count .. ")"
     local t = " " .. title .. " "
     frame[0] = ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
       .. ansi.fgtext(string.rep("─", math.max(0, bw - 3 - ansi.width(t))) .. "╮", C.sky)
     frame[1] = interior("")
-    frame[2] = interior(render.tab_bar(st.view, st.hidden))
+    frame[2] = interior(render.tab_bar(st.view, st.hidden, iw))
     frame[3] = interior("")
 
     if st.view == "Help" then
@@ -247,7 +253,10 @@ function M.run(opts)
         end
       elseif k == "r" then load_view(st.view, st.filter)
       elseif k == "left" or k == "right" then
-        local order = { "My Issues", "JQL", "Active Sprint", "Backlog", "Help" }
+        local order = {}
+        for _, name in ipairs({ "My Issues", "JQL", "Active Sprint", "Backlog", "Help" }) do
+          if name == "My Issues" or not st.hidden[name] then order[#order + 1] = name end
+        end
         local idx = 1
         for i, v in ipairs(order) do if v == st.view then idx = i end end
         idx = ((idx - 1 + (k == "right" and 1 or -1)) % #order) + 1

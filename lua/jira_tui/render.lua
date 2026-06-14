@@ -49,21 +49,25 @@ local function status_bg(status)
   return C.surface
 end
 
--- ---- tab bar ----
-function M.tab_bar(view, hidden)
-  local parts = { "  " }
+-- ---- tab bar (Help right-aligned; hidden tabs dropped, My Issues never hidden) ----
+function M.tab_bar(view, hidden, width)
+  local function chip(tab)
+    local label = string.format(" %s (%s) ", tab.name, tab.key)
+    if view == tab.name then return ansi.bgtext(label, C.base, C.yellow, ansi.BOLD) end
+    return ansi.bgtext(label, C.text, C.surface2)
+  end
+  local left, help = { "  " }, nil
   for _, tab in ipairs(M.TABS) do
-    if tab.name == "My Issues" or tab.name == "Help" or not (hidden and hidden[tab.name]) then
-      local label = string.format(" %s (%s) ", tab.name, tab.key)
-      if view == tab.name then
-        parts[#parts + 1] = ansi.bgtext(label, C.base, C.yellow, ansi.BOLD)
-      else
-        parts[#parts + 1] = ansi.bgtext(label, C.text, C.surface2)
-      end
-      parts[#parts + 1] = " "
+    if tab.name == "Help" then
+      help = chip(tab)
+    elseif tab.name == "My Issues" or not (hidden and hidden[tab.name]) then
+      left[#left + 1] = chip(tab)
+      left[#left + 1] = " "
     end
   end
-  return table.concat(parts)
+  local leftstr = table.concat(left)
+  local pad = math.max(1, (width or 80) - ansi.width(leftstr) - ansi.width(help) - 1)
+  return leftstr .. string.rep(" ", pad) .. help
 end
 
 -- ---- hint / filter line ----

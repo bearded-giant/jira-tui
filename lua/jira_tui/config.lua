@@ -9,6 +9,7 @@ M.options = {
   jira = { base = "", email = "", token = "", limit = 500 },
   projects = {},
   my_issues_projects = {},
+  hidden_tabs = {}, -- e.g. { "Active Sprint", "Backlog" } to declutter
 }
 
 function M.config_path()
@@ -28,6 +29,7 @@ function M.load()
       for k, v in pairs(user.jira or {}) do M.options.jira[k] = v end
       M.options.projects = user.projects or {}
       M.options.my_issues_projects = user.my_issues_projects or {}
+      M.options.hidden_tabs = user.hidden_tabs or {}
     end
   end
 

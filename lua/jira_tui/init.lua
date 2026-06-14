@@ -79,6 +79,8 @@ function M.main(argv)
     project = project,
     initial_view = view,
     state = state,
+    my_projects = config.options.my_issues_projects,
+    hidden_tabs = config.options.hidden_tabs,
   })
   return 0
 end
