@@ -10,8 +10,11 @@ M.REVERSE = 7
 M.color = {
   text = "205;214;244",     -- #cdd6f4 root/title
   subtext = "166;173;200",  -- #a6adc8
-  overlay = "108;112;134",  -- #6c7086 comment/child
-  surface = "49;50;68",     -- #313244 inactive tab bg
+  overlay = "108;112;134",  -- #6c7086 comment/dim
+  child = "166;173;200",    -- #a6adc8 child rows (legible)
+  surface = "49;50;68",     -- #313244
+  surface1 = "69;71;90",    -- #45475a inactive tab bg
+  surface2 = "88;91;112",   -- #585b70
   base = "30;30;46",        -- #1e1e2e
   red = "243;139;168",      -- #f38ba8 bug/block
   green = "166;227;161",    -- #a6e3a1 story/done
@@ -79,6 +82,13 @@ function M.pad(s, width)
   local w = M.width(s)
   if w >= width then return s end
   return s .. string.rep(" ", width - w)
+end
+
+-- pad an sgr-containing string to exactly `width` display cells (no truncation)
+function M.padline(s, width)
+  local w = M.width(s)
+  if w < width then return s .. string.rep(" ", width - w) end
+  return s
 end
 
 return M

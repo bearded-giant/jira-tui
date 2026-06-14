@@ -18,11 +18,11 @@ M.TABS = { -- order + hint key, matches jim
   { name = "Help", key = "H" },
 }
 
--- summary flex width (jim's get_effective_summary_width)
+-- summary flex width -- fills available space (no hard cap) so columns span the board
 function M.summary_width(board_w)
   local fixed = M.COL.key + M.COL.assignee + M.COL.time + M.COL.status
   local available = board_w - PREFIX_W - fixed - (2 * 4) - 2
-  return math.max(15, math.min(M.COL.summary_max, available))
+  return math.max(20, available)
 end
 
 local TYPE_ICON = {
@@ -56,9 +56,9 @@ function M.tab_bar(view, hidden)
       if view == tab.name then
         parts[#parts + 1] = ansi.bgtext(label, C.base, C.yellow, ansi.BOLD)
       else
-        parts[#parts + 1] = ansi.bgtext(label, C.subtext, C.surface)
+        parts[#parts + 1] = ansi.bgtext(label, C.text, C.surface2)
       end
-      parts[#parts + 1] = "  "
+      parts[#parts + 1] = " "
     end
   end
   return table.concat(parts)
@@ -76,13 +76,13 @@ end
 
 -- ---- column header ----
 function M.column_header(board_w, sort_col, sort_dir)
-  local sw = M.summary_width(board_w)
+  local sw = M.summary_width(board_w - 2)
   local cells = {
     { "Key", M.COL.key }, { "Title", sw }, { "Assignee", M.COL.assignee },
     { "Time", M.COL.time }, { "Status", M.COL.status },
   }
   local fields = { "key", "summary", "assignee", "time", "status" }
-  local line = string.rep(" ", PREFIX_W)
+  local line = "  " .. string.rep(" ", PREFIX_W)
   for i, c in ipairs(cells) do
     local label = c[1]
     if sort_col == fields[i] then label = label .. (sort_dir == "asc" and " ▲" or " ▼") end
@@ -109,7 +109,7 @@ end
 -- ---- one issue row ----
 -- returns the full ANSI line. selected draws a colored gutter bar.
 function M.issue_line(node, depth, board_w, selected)
-  local sw = M.summary_width(board_w)
+  local sw = M.summary_width(board_w - 2)
   local is_root = depth == 1
   local indent = string.rep("    ", depth - 1)
 
@@ -124,10 +124,10 @@ function M.issue_line(node, depth, board_w, selected)
 
   -- key
   local key = is_root and ansi.fgtext(ansi.fit(node.key or "", M.COL.key), C.text, ansi.BOLD)
-    or ansi.fgtext(ansi.fit(node.key or "", M.COL.key), C.overlay)
+    or ansi.fgtext(ansi.fit(node.key or "", M.COL.key), C.child)
   -- summary
   local summary = is_root and ansi.fgtext(ansi.fit(node.summary or "", summary_w), C.text, ansi.BOLD)
-    or ansi.fgtext(ansi.fit(node.summary or "", summary_w), C.overlay)
+    or ansi.fgtext(ansi.fit(node.summary or "", summary_w), C.child)
   -- assignee
   local ass = node.assignee or "Unassigned"
   local assignee = ass == "Unassigned"

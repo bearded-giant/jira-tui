@@ -31,11 +31,15 @@ function M.format_time(seconds)
   return string.format("%.1f", hours)
 end
 
--- depth-first flatten of expanded nodes into a render list of {node, depth}
-function M.flatten(roots)
+-- depth-first flatten of expanded nodes into a render list of {node, depth}.
+-- with_spacers inserts {spacer=true} between root groups (blank visual rows).
+function M.flatten(roots, with_spacers)
   local out = {}
   local function walk(nodes, depth)
     for _, node in ipairs(nodes) do
+      if with_spacers and depth == 1 and #out > 0 then
+        out[#out + 1] = { spacer = true }
+      end
       out[#out + 1] = { node = node, depth = depth }
       if node.expanded and node.children and #node.children > 0 then
         walk(node.children, depth + 1)

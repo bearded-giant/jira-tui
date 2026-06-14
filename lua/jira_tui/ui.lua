@@ -10,23 +10,24 @@ local function center(rows, cols, w, h)
   return math.max(1, math.floor((rows - h) / 2)), math.max(1, math.floor((cols - w) / 2))
 end
 
--- rounded box with optional centered-ish title in the top border. fills interior blank.
+-- rounded box, bright border + title. fills interior blank.
 local function draw_box(top, left, w, h, title)
   local function row(r, s) term.moveto(r, left); term.out(s) end
   local tline
   if title then
     local t = " " .. title .. " "
     local rest = math.max(0, w - 3 - ansi.width(t))
-    tline = "╭─" .. t .. string.rep("─", rest) .. "╮"
+    tline = ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
+      .. ansi.fgtext(string.rep("─", rest) .. "╮", C.sky)
   else
-    tline = "╭" .. string.rep("─", w - 2) .. "╮"
+    tline = ansi.fgtext("╭" .. string.rep("─", w - 2) .. "╮", C.sky)
   end
-  row(top, ansi.fgtext(tline, C.overlay))
-  local side = ansi.fgtext("│", C.overlay)
+  row(top, tline)
+  local side = ansi.fgtext("│", C.sky)
   for r = 1, h - 2 do
     row(top + r, side .. string.rep(" ", w - 2) .. side)
   end
-  row(top + h - 1, ansi.fgtext("╰" .. string.rep("─", w - 2) .. "╯", C.overlay))
+  row(top + h - 1, ansi.fgtext("╰" .. string.rep("─", w - 2) .. "╯", C.sky))
 end
 M.draw_box = draw_box
 M.center = center
@@ -35,28 +36,33 @@ M.center = center
 function M.input(title, opts)
   opts = opts or {}
   local rows, cols = term.size()
-  local w = math.min(opts.width or 72, cols - 4)
-  local h = opts.multiline and math.min(opts.height or 14, rows - 4) or 5
+  local w = math.min(opts.width or 76, cols - 6)
+  local h = opts.multiline and math.min(opts.height or 9, rows - 6) or 5
   local top, left = center(rows, cols, w, h)
   local buf = opts.value or ""
-  local hint = opts.multiline and "Ctrl-s: submit   Esc: cancel" or "Enter: submit   Esc: cancel"
+  local cursor = ansi.sgr(" ", ansi.REVERSE) -- visible block cursor
+  local hint = opts.multiline and "Ctrl-s submit   Esc cancel" or "Enter submit   Esc cancel"
 
   while true do
     draw_box(top, left, w, h, title)
     if opts.multiline then
       local n = 0
+      local lastlen = 0
+      for _ in (buf .. "\n"):gmatch("(.-)\n") do lastlen = lastlen + 1 end
+      n = 0
       for line in (buf .. "\n"):gmatch("(.-)\n") do
         if n < h - 3 then
           term.moveto(top + 1 + n, left + 2)
-          term.out(ansi.fgtext(ansi.truncate(line, w - 4), C.text) .. "▏")
+          local tail = (n == lastlen - 1) and cursor or ""
+          term.out(ansi.fgtext(ansi.truncate(line, w - 5), C.text) .. tail)
         end
         n = n + 1
       end
     else
-      term.moveto(top + 2, left + 2)
-      term.out(ansi.fgtext("> ", C.yellow) .. ansi.truncate(buf, w - 6) .. ansi.fgtext("▏", C.text))
+      term.moveto(top + 2, left + 3)
+      term.out(ansi.fgtext("❯ ", C.sky, ansi.BOLD) .. ansi.fgtext(ansi.truncate(buf, w - 8), C.text) .. cursor)
     end
-    term.moveto(top + h - 1, left + 2)
+    term.moveto(top + h - 1, left + 3)
     term.out(ansi.fgtext(" " .. hint .. " ", C.overlay))
 
     local k = term.read_key()

@@ -25,16 +25,27 @@ function M.run(opts)
   local persist = opts.state
   local st = {
     view = opts.initial_view, project = opts.project, filter = nil,
-    roots = {}, flat = {}, cursor = 1, scroll = 0,
+    roots = {}, flat = {}, cursor = 1, scroll = 0, count = 0,
     sort_col = nil, sort_dir = nil, raw = {}, message = nil,
     hide_resolved = persist and persist.data.hide_resolved,
+    rows = 24, cols = 80,
   }
   if st.hide_resolved == nil then st.hide_resolved = true end
+  local function refresh_size() st.rows, st.cols = term.size() end
+  refresh_size()
+
+  -- nearest non-spacer index from `from` walking `dir` (+1/-1)
+  local function step(from, dir)
+    local i = from + dir
+    while st.flat[i] and st.flat[i].spacer do i = i + dir end
+    return st.flat[i] and i or from
+  end
 
   local function reflatten()
-    st.flat = model.flatten(st.roots)
-    if st.cursor > #st.flat then st.cursor = math.max(1, #st.flat) end
+    st.flat = model.flatten(st.roots, true)
+    if st.cursor > #st.flat then st.cursor = #st.flat end
     if st.cursor < 1 then st.cursor = 1 end
+    if st.flat[st.cursor] and st.flat[st.cursor].spacer then st.cursor = step(st.cursor, -1) end
   end
 
   local function rebuild()
@@ -42,6 +53,7 @@ function M.run(opts)
     for _, iss in ipairs(st.raw) do
       if not (st.hide_resolved and iss.status_category == "Done") then issues[#issues + 1] = iss end
     end
+    st.count = #issues
     st.roots = model.build_issue_tree(issues)
     if st.sort_col then sort_roots(st.roots, st.sort_col, st.sort_dir) end
     for _, n in ipairs(st.roots) do
@@ -62,44 +74,55 @@ function M.run(opts)
 
   local function cur_node()
     local e = st.flat[st.cursor]
-    return e and e.node
+    return e and not e.spacer and e.node or nil
   end
 
+  -- build the whole frame as one string and write once (no clear, no flicker)
   local function draw()
-    local rows, cols = term.size()
-    local bw = math.max(48, math.min(math.floor(cols * 0.94), 200))
-    local bh = math.max(12, math.min(math.floor(rows * 0.92), 60))
+    local cols, rows = st.cols, st.rows
+    local bw = math.max(48, cols - 2)
+    local bh = math.max(12, rows - 2)
     local top = math.max(1, math.floor((rows - bh) / 2))
     local left = math.max(1, math.floor((cols - bw) / 2))
-    local iw, cw = bw - 2, bw - 4
-    term.clear()
+    local iw = bw - 2
+    local buf = {}
+    local function at(r, c) return "\27[" .. (top + r) .. ";" .. (left + c) .. "H" end
+    local function row(r, content)
+      buf[#buf + 1] = at(r, 0) .. ansi.fgtext("│", C.sky) .. ansi.padline(content, iw) .. ansi.fgtext("│", C.sky)
+    end
+
+    -- top border + title
     local title = "jira-tui — " .. st.view ..
-      (st.project and ("  ·  " .. st.project) or "") .. "   (" .. #st.flat .. ")"
-    ui.draw_box(top, left, bw, bh, title)
-    local function put(r, s) term.moveto(top + r, left + 1); term.out(s) end
-    put(1, render.tab_bar(st.view, st.hidden))
-    put(2, render.hint_line(st.view, st.filter))
+      (st.project and ("  ·  " .. st.project) or "") .. "   (" .. st.count .. ")"
+    local t = " " .. title .. " "
+    local rest = math.max(0, bw - 3 - ansi.width(t))
+    buf[#buf + 1] = at(0, 0) .. ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
+      .. ansi.fgtext(string.rep("─", rest) .. "╮", C.sky)
+
+    row(1, render.tab_bar(st.view, st.hidden))
+    row(2, render.hint_line(st.view, st.filter))
 
     if st.view == "Help" then
       local hl = ui.help_lines(iw)
-      for i = 1, bh - 4 do put(2 + i, hl[i] or "") end
+      for r = 3, bh - 2 do row(r, hl[r - 2] or "") end
     else
-      put(3, render.column_header(cw, st.sort_col, st.sort_dir))
-      local body = bh - 2 - 4
+      row(3, render.column_header(iw, st.sort_col, st.sort_dir))
+      local body = bh - 2 - 3
       if st.cursor <= st.scroll then st.scroll = st.cursor - 1 end
       if st.cursor > st.scroll + body then st.scroll = st.cursor - body end
       if st.scroll < 0 then st.scroll = 0 end
       for i = 1, body do
-        local idx = st.scroll + i
-        local e = st.flat[idx]
-        put(3 + i, e and render.issue_line(e.node, e.depth, cw, idx == st.cursor) or "")
+        local e = st.flat[st.scroll + i]
+        row(3 + i, (e and not e.spacer) and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor) or "")
       end
     end
 
+    -- bottom border (+ message overlay)
+    buf[#buf + 1] = at(bh - 1, 0) .. ansi.fgtext("╰" .. string.rep("─", bw - 2) .. "╯", C.sky)
     if st.message then
-      term.moveto(top + bh - 1, left + 3)
-      term.out(ansi.bgtext(" " .. ansi.truncate(st.message, bw - 8) .. " ", C.base, C.red, ansi.BOLD))
+      buf[#buf + 1] = at(bh - 1, 2) .. ansi.bgtext(" " .. ansi.truncate(st.message, bw - 8) .. " ", C.base, C.red, ansi.BOLD)
     end
+    term.out(table.concat(buf))
   end
 
   local function toggle_all(expand)
@@ -121,13 +144,25 @@ function M.run(opts)
     if load_view("JQL:" .. q) and persist then persist.add_jql(q) end
   end
 
+  local NEWQ = "＋ New query…"
+  local function pick_jql()
+    local hist = (persist and persist.data.jql_history) or {}
+    local items = { NEWQ }
+    for _, q in ipairs(hist) do items[#items + 1] = q end
+    local choice = ui.select("JQL", items,
+      { format = function(s) return s == NEWQ and s or (s:gsub("%s+", " ")) end })
+    if not choice then return end
+    if choice == NEWQ then run_jql(ui.input("New JQL", { multiline = true }))
+    else run_jql(choice) end
+  end
+
   local function open_browser(n)
     if not n then return end
     local url = require("jira_tui.config").options.jira.base .. "/browse/" .. n.key
     os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", url, url))
   end
 
-  term.raw_on(); term.enter()
+  term.raw_on(); term.enter(); term.clear()
   local ok, err = pcall(function()
     load_view(st.view, nil)
 
@@ -137,11 +172,9 @@ function M.run(opts)
       local n = cur_node()
 
       if k == "q" or k == "esc" then break
-      elseif k == "j" or k == "down" or k == "wheeldown" then
-        if st.cursor < #st.flat then st.cursor = st.cursor + 1 end
-      elseif k == "k" or k == "up" or k == "wheelup" then
-        if st.cursor > 1 then st.cursor = st.cursor - 1 end
-      elseif k == "G" then st.cursor = #st.flat
+      elseif k == "j" or k == "down" or k == "wheeldown" then st.cursor = step(st.cursor, 1)
+      elseif k == "k" or k == "up" or k == "wheelup" then st.cursor = step(st.cursor, -1)
+      elseif k == "G" then st.cursor = step(#st.flat + 1, -1)
       elseif k == "o" or k == " " or k == "enter" or k == "tab" then
         if n and n.children and #n.children > 0 then n.expanded = not n.expanded; reflatten() end
       elseif k == "t" then
@@ -154,15 +187,7 @@ function M.run(opts)
       elseif k == "p" then
         local p = ui.input("Project key", { value = st.project or "", width = 40 })
         if p and p ~= "" then st.project = p:upper(); load_view("Active Sprint", nil) end
-      elseif k == "J" then
-        local hist = (persist and persist.data.jql_history) or {}
-        if #hist == 0 then
-          run_jql(ui.input("New JQL", { multiline = true }))
-        else
-          local choice = ui.select("JQL history  (Esc: cancel)", hist,
-            { format = function(s) return (s:gsub("%s+", " ")) end })
-          if choice then run_jql(choice) end
-        end
+      elseif k == "J" then pick_jql()
       elseif k == "H" then st.view = "Help"; st.message = nil
       elseif k == "/" then
         local f = ui.input("Filter (summary ~)", { value = st.filter or "", width = 50 })
@@ -187,7 +212,7 @@ function M.run(opts)
           os.execute(string.format("printf %%s %q | pbcopy 2>/dev/null", n.key))
           st.message = "copied " .. n.key
         end
-      elseif k == "r" then load_view(st.view, st.filter)
+      elseif k == "r" then refresh_size(); term.clear(); load_view(st.view, st.filter)
       elseif k == "left" or k == "right" then
         local order = { "My Issues", "JQL", "Active Sprint", "Backlog", "Help" }
         local idx = 1
@@ -196,9 +221,7 @@ function M.run(opts)
         local nv = order[idx]
         if nv == "Active Sprint" or nv == "Backlog" then
           if ensure_project() then load_view(nv, nil) end
-        elseif nv == "JQL" then
-          local last = persist and persist.data.jql_history[1]
-          if last then run_jql(last) else run_jql(ui.input("New JQL", { multiline = true })) end
+        elseif nv == "JQL" then pick_jql()
         elseif nv == "Help" then st.view = "Help"; st.message = nil
         else load_view(nv, nil) end
       elseif k == "g" then
