@@ -65,7 +65,7 @@ function M.input(title, opts)
     term.moveto(top + h - 1, left + 3)
     term.out(ansi.fgtext(" " .. hint .. " ", C.overlay))
 
-    local k = term.read_key()
+    local k; repeat k = term.read_key() until k
     if k == "esc" then return nil end
     if opts.multiline and k == "ctrl-s" then return trim(buf) end
     if not opts.multiline and k == "enter" then return buf end
@@ -109,7 +109,7 @@ function M.select(title, items, opts)
     term.moveto(top + h - 1, left + 2)
     term.out(ansi.fgtext(string.format(" %d/%d   j/k move   Enter select   Esc cancel ", sel, #items), C.overlay))
 
-    local k = term.read_key()
+    local k; repeat k = term.read_key() until k
     if k == "esc" or k == "q" then return nil end
     if (k == "j" or k == "down" or k == "wheeldown") and sel < #items then sel = sel + 1 end
     if (k == "k" or k == "up" or k == "wheelup") and sel > 1 then sel = sel - 1 end
@@ -137,7 +137,7 @@ function M.detail(title, text)
     end
     term.moveto(top + h - 1, left + 2)
     term.out(ansi.fgtext(" j/k scroll   q back ", C.overlay))
-    local k = term.read_key()
+    local k; repeat k = term.read_key() until k
     if k == "q" or k == "esc" then return end
     if (k == "j" or k == "down" or k == "wheeldown") and scroll < #lines - body then scroll = scroll + 1 end
     if (k == "k" or k == "up" or k == "wheelup") and scroll > 0 then scroll = scroll - 1 end

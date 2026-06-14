@@ -4,6 +4,7 @@ local ui = require("jira_tui.ui")
 local ansi = require("jira_tui.ansi")
 local api = require("jira_tui.api")
 local model = require("jira_tui.model")
+local version = require("jira_tui.version")
 
 local M = {}
 local C = ansi.color
@@ -31,8 +32,8 @@ function M.run(opts)
     rows = 24, cols = 80,
   }
   if st.hide_resolved == nil then st.hide_resolved = true end
-  local function refresh_size() st.rows, st.cols = term.size() end
-  refresh_size()
+  st.rows, st.cols = term.size()
+  local draw -- forward decl (load_view shows a loading footer via draw)
 
   -- nearest non-spacer index from `from` walking `dir` (+1/-1)
   local function step(from, dir)
@@ -63,7 +64,10 @@ function M.run(opts)
   end
 
   local function load_view(view, filter)
+    st.loading = "loading " .. view:gsub("^JQL:.*", "JQL") .. "…"
+    if draw then draw() end
     local issues, err = opts.load(view, filter, st.project)
+    st.loading = nil
     if err then st.message = err; return false end
     st.view, st.filter, st.raw = view, filter, issues or {}
     st.cursor, st.scroll, st.message = 1, 0, nil
@@ -77,17 +81,17 @@ function M.run(opts)
     return e and not e.spacer and e.node or nil
   end
 
-  -- build the whole frame as one string and write once (no clear, no flicker).
-  -- re-query size each frame so resize works; clear only when it changes.
-  local function draw()
+  -- one buffered write. layout has breathing room:
+  -- chrome(title) / blank / tabs / blank / column-header / list / keybinds / footer
+  draw = function()
     local rows, cols = term.size()
     local buf = {}
     if rows ~= st.rows or cols ~= st.cols then
       st.rows, st.cols = rows, cols
       buf[#buf + 1] = "\27[2J"
     end
-    local bw = math.max(48, cols - 2)
-    local bh = math.max(12, rows - 2)
+    local bw = math.max(50, cols - 2)
+    local bh = math.max(14, rows - 2)
     local top = math.max(1, math.floor((rows - bh) / 2))
     local left = math.max(1, math.floor((cols - bw) / 2))
     local iw = bw - 2
@@ -96,37 +100,49 @@ function M.run(opts)
       buf[#buf + 1] = at(r, 0) .. ansi.fgtext("│", C.sky) .. ansi.padline(content, iw) .. ansi.fgtext("│", C.sky)
     end
 
-    -- top border + title
+    -- top border + title (chrome)
     local title = "jira-tui — " .. st.view ..
       (st.project and ("  ·  " .. st.project) or "") .. "   (" .. st.count .. ")"
     local t = " " .. title .. " "
-    local rest = math.max(0, bw - 3 - ansi.width(t))
     buf[#buf + 1] = at(0, 0) .. ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
-      .. ansi.fgtext(string.rep("─", rest) .. "╮", C.sky)
+      .. ansi.fgtext(string.rep("─", math.max(0, bw - 3 - ansi.width(t))) .. "╮", C.sky)
 
-    row(1, render.tab_bar(st.view, st.hidden))
-    row(2, render.hint_line(st.view, st.filter))
+    row(1, "")
+    row(2, render.tab_bar(st.view, st.hidden))
+    row(3, "")
 
     if st.view == "Help" then
       local hl = ui.help_lines(iw)
-      for r = 3, bh - 2 do row(r, hl[r - 2] or "") end
+      for r = 4, bh - 3 do row(r, hl[r - 3] or "") end
     else
-      row(3, render.column_header(iw, st.sort_col, st.sort_dir))
-      local body = bh - 2 - 3
+      row(4, render.column_header(iw, st.sort_col, st.sort_dir))
+      local body_top, body_bot = 5, bh - 3
+      local body = body_bot - body_top + 1
       if st.cursor <= st.scroll then st.scroll = st.cursor - 1 end
       if st.cursor > st.scroll + body then st.scroll = st.cursor - body end
       if st.scroll < 0 then st.scroll = 0 end
       for i = 1, body do
         local e = st.flat[st.scroll + i]
-        row(3 + i, (e and not e.spacer) and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor) or "")
+        row(body_top + i - 1,
+          (e and not e.spacer) and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor) or "")
       end
     end
 
-    -- bottom border (+ message overlay)
-    buf[#buf + 1] = at(bh - 1, 0) .. ansi.fgtext("╰" .. string.rep("─", bw - 2) .. "╯", C.sky)
-    if st.message then
-      buf[#buf + 1] = at(bh - 1, 2) .. ansi.bgtext(" " .. ansi.truncate(st.message, bw - 8) .. " ", C.base, C.red, ansi.BOLD)
-    end
+    -- keybinds (moved to the bottom) + transient message
+    row(bh - 2, st.message
+      and ansi.bgtext("  " .. ansi.truncate(st.message, bw - 6) .. " ", C.base, C.red, ansi.BOLD)
+      or render.hint_line(st.view, st.filter))
+
+    -- footer border: loading (lower-left), version (lower-right)
+    local vtxt = " v" .. version .. " "
+    local ltxt = st.loading and (" ● " .. st.loading .. " ") or ""
+    local fill = math.max(0, bw - 2 - ansi.width(ltxt) - ansi.width(vtxt))
+    buf[#buf + 1] = at(bh - 1, 0) .. ansi.fgtext("╰", C.sky)
+      .. (ltxt ~= "" and ansi.fgtext(ltxt, C.yellow, ansi.BOLD) or "")
+      .. ansi.fgtext(string.rep("─", fill), C.sky)
+      .. ansi.fgtext(vtxt, C.overlay)
+      .. ansi.fgtext("╯", C.sky)
+
     term.out(table.concat(buf))
   end
 
@@ -167,13 +183,20 @@ function M.run(opts)
     os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", url, url))
   end
 
+  local interactive = term.isatty()
   term.raw_on(); term.enter(); term.clear()
   local ok, err = pcall(function()
     load_view(st.view, nil)
+    draw()
 
     while true do
-      draw()
       local k = term.read_key()
+      if k == nil then
+        -- no input: timeout on a tty (poll for resize), EOF on a pipe (quit)
+        if not interactive then break end
+        local r, c = term.size()
+        if r ~= st.rows or c ~= st.cols then draw() end
+      else
       local n = cur_node()
 
       if k == "q" or k == "esc" then break
@@ -247,6 +270,8 @@ function M.run(opts)
         end
       elseif k == "s" or k == "c" or k == "d" or k == "e" or k == "a" then
         st.message = "'" .. k .. "' (edit/create/status/assign) lives in the nvim plugin, not the TUI"
+      end
+      draw()
       end
     end
   end)

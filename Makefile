@@ -2,7 +2,7 @@ LUA ?= luajit
 PREFIX ?= $(HOME)/.local
 ARGS ?=
 
-.PHONY: help test test-all lint check run install uninstall build screenshots
+.PHONY: help test test-all lint check run install uninstall build screenshots tag
 
 help: ## show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -36,3 +36,8 @@ build: ## (none -- pure lua)
 
 screenshots: ## render TUI views to screenshots/*.png (needs vhs + JIRA_* env)
 	vhs screenshots/jira-tui.tape
+
+tag: ## cut git tag vX.Y.Z from lua/jira_tui/version.lua
+	git tag -a "v$$(lua -e "io.write(dofile('lua/jira_tui/version.lua'))")" \
+		-m "v$$(lua -e "io.write(dofile('lua/jira_tui/version.lua'))")"
+	@echo "tagged. push with: git push --tags"

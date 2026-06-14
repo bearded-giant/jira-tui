@@ -67,10 +67,9 @@ end
 -- ---- hint / filter line ----
 function M.hint_line(view, filter)
   if filter and filter ~= "" then
-    return ansi.fgtext("  Filter: " .. filter .. "  (<BS> to clear)", C.yellow)
+    return ansi.fgtext("  filter: " .. filter .. "   (BS clears)", C.yellow)
   end
-  local h = "  o/⏎:toggle  t:all  /:filter  M:mine  S:sprint  B:backlog  K:detail  m:md  gx:open  r:refresh  H:help  q:quit"
-  if view == "JQL" then h = "  gj:new/history  J:rerun" .. h:gsub("^  o/⏎:toggle", "  o/⏎:toggle") end
+  local h = "  j/k move   o expand   t all   / filter   J jql   M mine   S sprint   B backlog   p proj   K detail   gx open   H help   q quit"
   return ansi.fgtext(h, C.overlay)
 end
 

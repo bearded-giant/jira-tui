@@ -11,8 +11,14 @@ function M.size()
   return tonumber(rows) or 24, tonumber(cols) or 80
 end
 
-function M.raw_on() os.execute("stty raw -echo 2>/dev/null") end
-function M.raw_off() os.execute("stty sane 2>/dev/null") end
+-- raw + non-blocking reads (0.2s timeout) so the loop can wake to detect resize
+function M.raw_on() os.execute("stty raw -echo min 0 time 2 </dev/tty 2>/dev/null") end
+function M.raw_off() os.execute("stty sane </dev/tty 2>/dev/null") end
+
+function M.isatty()
+  local ok = os.execute("test -t 0")
+  return ok == true or ok == 0
+end
 -- alt screen + hide cursor + enable SGR mouse (wheel)
 function M.enter() M.out("\27[?1049h\27[?25l\27[?1000h\27[?1006h") end
 function M.leave() M.out("\27[?1000l\27[?1006l\27[?25h\27[?1049l") end
@@ -22,9 +28,10 @@ function M.moveto(r, c) M.out("\27[" .. r .. ";" .. (c or 1) .. "H") end
 -- single logical-key reader. swallows non-wheel mouse events (returns nil).
 -- returns: printable char, "enter","esc","tab","bs","ctrl-s","up/down/left/right",
 -- "wheelup","wheeldown","q"(ctrl-c), or nil (ignored mouse / unknown).
+-- returns nil on no input (timeout on a tty, EOF on a pipe); caller disambiguates
 function M.read_key()
   local c = io.read(1)
-  if not c then return "q" end
+  if not c then return nil end
   if c == "\27" then
     local c2 = io.read(1)
     if c2 ~= "[" then return "esc" end
