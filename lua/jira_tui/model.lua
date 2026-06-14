@@ -24,6 +24,26 @@ function M.build_issue_tree(issues)
   return roots
 end
 
+-- "2026-06-01T..." -> "2026-06-01"
+function M.short_date(iso)
+  if type(iso) ~= "string" then return "" end
+  return iso:sub(1, 10)
+end
+
+-- age from created date to now: today / Nd / Nw / Nmo / Ny
+function M.age(iso)
+  if type(iso) ~= "string" then return "" end
+  local y, mo, d = iso:match("(%d+)-(%d+)-(%d+)")
+  if not y then return "" end
+  local then_t = os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 })
+  local days = math.floor((os.time() - then_t) / 86400)
+  if days <= 0 then return "today" end
+  if days < 14 then return days .. "d" end
+  if days < 60 then return math.floor(days / 7) .. "w" end
+  if days < 365 then return math.floor(days / 30) .. "mo" end
+  return math.floor(days / 365) .. "y"
+end
+
 function M.format_time(seconds)
   if not seconds or seconds <= 0 then return "0" end
   local hours = seconds / 3600

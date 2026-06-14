@@ -77,6 +77,12 @@ do
   eq(#model.flatten(roots), 3, "expanded shows child")
   eq(model.flatten(roots)[2].depth, 2, "child depth 2")
 
+  eq(model.short_date("2026-06-01T12:00:00.000+0000"), "2026-06-01", "short_date strips time")
+  eq(model.short_date(nil), "", "short_date nil")
+  eq(model.age(nil), "", "age nil")
+  ok(model.age("2000-01-01"):find("y"), "age of 2000 is in years")
+  eq(model.age(os.date("%Y-%m-%dT00:00:00")), "today", "age of today")
+
   eq(model.format_time(7200), "2", "2h integer")
   eq(model.format_time(5400), "1.5", "1.5h")
   eq(model.format_time(0), "0", "zero")

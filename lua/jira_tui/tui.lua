@@ -207,8 +207,9 @@ function M.run(opts)
       elseif k == "wheeldown" then for _ = 1, 3 do st.cursor = step(st.cursor, 1) end
       elseif k == "wheelup" then for _ = 1, 3 do st.cursor = step(st.cursor, -1) end
       elseif k == "G" then st.cursor = step(#st.flat + 1, -1)
-      elseif k == "o" or k == " " or k == "enter" or k == "tab" then
+      elseif k == "enter" or k == " " or k == "tab" then
         if n and n.children and #n.children > 0 then n.expanded = not n.expanded; reflatten() end
+      elseif k == "b" then open_browser(n)
       elseif k == "t" then
         local any = false
         for _, r in ipairs(st.roots) do if r.expanded then any = true end end
@@ -257,9 +258,8 @@ function M.run(opts)
         elseif nv == "Help" then st.view = "Help"; st.message = nil
         else load_view(nv, nil) end
       elseif k == "g" then
-        local nk = term.read_key()
+        local nk; repeat nk = term.read_key() until nk
         if nk == "g" then st.cursor = 1
-        elseif nk == "x" then open_browser(n)
         elseif nk == "j" then run_jql(ui.input("New JQL", { multiline = true }))
         elseif nk == "s" then
           local cols = { { f = "key", l = "Key" }, { f = "summary", l = "Title" },

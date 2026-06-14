@@ -9,7 +9,7 @@ local ROOT_PREFIX = 3 -- chevron + icon + space, before the key (icon sits next 
 local CHILD_INDENT = 4 -- spaces per nesting level for subtasks
 
 M.COL = {
-  key = 12, assignee = 12, time = 16, status = 14,
+  key = 12, assignee = 12, created = 12, age = 6, status = 14,
 }
 
 M.TABS = { -- order + hint key, matches jim
@@ -22,8 +22,8 @@ M.TABS = { -- order + hint key, matches jim
 
 -- summary flex width -- fills available space (no hard cap) so columns span the board
 function M.summary_width(iw)
-  local fixed = M.COL.key + M.COL.assignee + M.COL.time + M.COL.status
-  local available = iw - GUTTER - ROOT_PREFIX - fixed - (2 * 4)
+  local fixed = M.COL.key + M.COL.assignee + M.COL.created + M.COL.age + M.COL.status
+  local available = iw - GUTTER - ROOT_PREFIX - fixed - (2 * 5)
   return math.max(20, available)
 end
 
@@ -71,7 +71,8 @@ function M.hint_line(view, filter)
   if filter and filter ~= "" then
     return ansi.fgtext("  filter: " .. filter .. "   (BS clears)", C.yellow)
   end
-  local h = "  j/k move   o expand   t all   / filter   J jql   M mine   S sprint   B backlog   p proj   K detail   gx open   H help   q quit"
+  -- tab keys (M/J/S/B/H) live in the header; footer shows actions only
+  local h = "  j/k move   ⏎ expand   t all   / filter   p project   K detail   b open   r refresh   q quit"
   return ansi.fgtext(h, C.overlay)
 end
 
@@ -80,9 +81,9 @@ function M.column_header(board_w, sort_col, sort_dir)
   local sw = M.summary_width(board_w)
   local cells = {
     { "Key", M.COL.key }, { "Title", sw }, { "Assignee", M.COL.assignee },
-    { "Time", M.COL.time }, { "Status", M.COL.status },
+    { "Created", M.COL.created }, { "Age", M.COL.age }, { "Status", M.COL.status },
   }
-  local fields = { "key", "summary", "assignee", "time", "status" }
+  local fields = { "key", "summary", "assignee", "created", "age", "status" }
   local line = string.rep(" ", GUTTER + ROOT_PREFIX)
   for i, c in ipairs(cells) do
     local label = c[1]
@@ -90,21 +91,6 @@ function M.column_header(board_w, sort_col, sort_dir)
     line = line .. ansi.fgtext(ansi.fit(label, c[2]), C.overlay, ansi.BOLD) .. "  "
   end
   return line
-end
-
--- ---- progress bar (root time) ----
-local function progress_bar(spent, estimate)
-  spent = spent or 0
-  estimate = estimate or 0
-  local denom = math.max(estimate, spent)
-  local filled = denom > 0 and math.floor((spent / denom) * 8) or 0
-  filled = math.max(0, math.min(8, filled))
-  local bar = ansi.fgtext(string.rep("▰", filled), C.blue) .. ansi.fgtext(string.rep("▱", 8 - filled), C.overlay)
-  local ratio = ""
-  if spent > 0 or estimate > 0 then
-    ratio = " " .. model.format_time(spent) .. "/" .. model.format_time(estimate)
-  end
-  return bar, ratio
 end
 
 -- ---- one issue row ----
@@ -143,15 +129,9 @@ function M.issue_line(node, depth, board_w, selected, is_last)
   local assignee = ass == "Unassigned"
     and ansi.fgtext(ansi.fit(ass, M.COL.assignee), C.graytext, ansi.ITALIC)
     or ansi.fgtext(ansi.fit(ass, M.COL.assignee), C.green)
-  -- time
-  local time_cell
-  if is_root then
-    local bar, ratio = progress_bar(node.time_spent, node.time_estimate)
-    time_cell = ansi.fit(bar .. ansi.fgtext(ratio, C.overlay), M.COL.time)
-  else
-    local t = node.time_spent and node.time_spent > 0 and model.format_time(node.time_spent) or "-"
-    time_cell = ansi.fgtext(ansi.fit(t, M.COL.time), C.overlay)
-  end
+  -- created date + age
+  local created = ansi.fgtext(ansi.fit(model.short_date(node.created), M.COL.created), C.overlay)
+  local age = ansi.fgtext(ansi.fit(model.age(node.created), M.COL.age), C.subtext)
   -- status badge: bg color, dark fg
   local st = ansi.truncate(node.status or "", M.COL.status - 2)
   local status = ansi.bgtext(" " .. ansi.pad(st, M.COL.status - 2) .. " ", C.base, status_bg(node.status), ansi.BOLD)
@@ -159,7 +139,7 @@ function M.issue_line(node, depth, board_w, selected, is_last)
   local gutter = selected and ansi.fgtext("▌", C.sky, ansi.BOLD) .. " " or "  "
   return table.concat({
     gutter, prefix,
-    key, "  ", summary, "  ", assignee, "  ", time_cell, "  ", status,
+    key, "  ", summary, "  ", assignee, "  ", created, "  ", age, "  ", status,
   })
 end
 
