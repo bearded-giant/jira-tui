@@ -18,6 +18,10 @@ Screenshot screenshots/collapsed.png
 Type "t"
 Sleep 1s
 
+Type "B"
+Sleep 3s
+Screenshot screenshots/backlog.png
+
 Type "H"
 Sleep 1s
 Screenshot screenshots/help.png

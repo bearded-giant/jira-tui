@@ -5,8 +5,10 @@ local tui = require("jira_tui.tui")
 
 local M = {}
 
-local function make_loader(project, my_projects)
-  return function(view, filter)
+local function make_loader(default_project, my_projects)
+  -- project arg (from the in-TUI prompt) wins; falls back to launch default
+  return function(view, filter, project)
+    project = project or default_project
     if view == "Backlog" then
       return sprint.get_backlog_issues(project, filter)
     elseif view == "My Issues" then
