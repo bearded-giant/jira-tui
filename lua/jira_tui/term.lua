@@ -3,7 +3,8 @@ local M = {}
 M.out = io.write
 
 function M.size()
-  local p = io.popen("stty size 2>/dev/null")
+  -- read the controlling tty, not the popen pipe (pipe -> bogus 24x80 fallback)
+  local p = io.popen("stty size </dev/tty 2>/dev/null")
   local s = p and p:read("*a") or ""
   if p then p:close() end
   local rows, cols = s:match("(%d+)%s+(%d+)")

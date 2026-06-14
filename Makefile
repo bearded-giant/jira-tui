@@ -2,7 +2,7 @@ LUA ?= luajit
 PREFIX ?= $(HOME)/.local
 ARGS ?=
 
-.PHONY: help test test-all lint check run install uninstall build
+.PHONY: help test test-all lint check run install uninstall build screenshots
 
 help: ## show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -33,3 +33,6 @@ uninstall: ## remove the symlink
 
 build: ## (none -- pure lua)
 	@echo "pure lua, nothing to build. run 'make check'."
+
+screenshots: ## render TUI views to screenshots/*.png (needs vhs + JIRA_* env)
+	vhs screenshots/jira-tui.tape

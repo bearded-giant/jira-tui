@@ -77,15 +77,20 @@ function M.run(opts)
     return e and not e.spacer and e.node or nil
   end
 
-  -- build the whole frame as one string and write once (no clear, no flicker)
+  -- build the whole frame as one string and write once (no clear, no flicker).
+  -- re-query size each frame so resize works; clear only when it changes.
   local function draw()
-    local cols, rows = st.cols, st.rows
+    local rows, cols = term.size()
+    local buf = {}
+    if rows ~= st.rows or cols ~= st.cols then
+      st.rows, st.cols = rows, cols
+      buf[#buf + 1] = "\27[2J"
+    end
     local bw = math.max(48, cols - 2)
     local bh = math.max(12, rows - 2)
     local top = math.max(1, math.floor((rows - bh) / 2))
     local left = math.max(1, math.floor((cols - bw) / 2))
     local iw = bw - 2
-    local buf = {}
     local function at(r, c) return "\27[" .. (top + r) .. ";" .. (left + c) .. "H" end
     local function row(r, content)
       buf[#buf + 1] = at(r, 0) .. ansi.fgtext("│", C.sky) .. ansi.padline(content, iw) .. ansi.fgtext("│", C.sky)
@@ -212,7 +217,7 @@ function M.run(opts)
           os.execute(string.format("printf %%s %q | pbcopy 2>/dev/null", n.key))
           st.message = "copied " .. n.key
         end
-      elseif k == "r" then refresh_size(); term.clear(); load_view(st.view, st.filter)
+      elseif k == "r" then load_view(st.view, st.filter)
       elseif k == "left" or k == "right" then
         local order = { "My Issues", "JQL", "Active Sprint", "Backlog", "Help" }
         local idx = 1
