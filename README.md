@@ -138,3 +138,7 @@ MVP: view, navigate, JQL, filter, read descriptions. Editing, status changes, as
 ## Credits
 
 A [Bearded Giant](https://github.com/bearded-giant) project.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Vendors [json.lua](https://github.com/rxi/json.lua) (rxi, MIT).

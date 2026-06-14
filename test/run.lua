@@ -149,5 +149,24 @@ do
   for _, l in ipairs(nolines) do ok(l:sub(1, 4) ~= "data", "GET has no data line") end
 end
 
+-- ---- render smoke (guards the layout) ----
+do
+  local render = require("jira_tui.render")
+  local function plain(s) return (s:gsub("\27%[[%d;]*m", "")) end
+
+  local hdr = plain(render.column_header(120))
+  ok(hdr:find("Created") and hdr:find("Age") and hdr:find("Status"), "column header has Created/Age/Status")
+
+  local bar = plain(render.tab_bar("My Issues", { ["Active Sprint"] = true, ["Backlog"] = true }, 100))
+  ok(bar:find("My Issues") and bar:find("JQL") and bar:find("Help"), "tab bar has visible tabs")
+  ok(not bar:find("Active Sprint") and not bar:find("Backlog"), "hidden tabs dropped")
+  ok(bar:find("JQL.*%s%s%s+.*Help"), "Help pushed right of JQL")
+
+  local root = plain(render.issue_line({ key = "A-1", summary = "s", type = "Bug", status = "Backlog" }, 1, 120, false, true))
+  ok(root:find("A%-1"), "issue row has key")
+  local child = plain(render.issue_line({ key = "A-2", summary = "c", type = "Bug", status = "Done" }, 2, 120, false, true))
+  ok(child:find("└─"), "last child uses └─ connector")
+end
+
 io.write(string.format("\n%d passed, %d failed\n", pass, fail))
 os.exit(fail == 0 and 0 or 1)
