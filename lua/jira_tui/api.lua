@@ -142,4 +142,22 @@ function M.get_myself()
   return curl_request("GET", "/rest/api/3/myself", nil)
 end
 
+function M.get_comments(issue_key, max)
+  local result, err = curl_request("GET",
+    "/rest/api/3/issue/" .. issue_key .. "/comment?orderBy=-created&maxResults=" .. (max or 20), nil)
+  if err or type(result) ~= "table" then return nil, err or "no comments" end
+  return result.comments or {}, nil
+end
+
+function M.get_assignable(issue_key)
+  local result, err = curl_request("GET",
+    "/rest/api/3/user/assignable/search?issueKey=" .. issue_key .. "&maxResults=50", nil)
+  if err or type(result) ~= "table" then return nil, err or "no users" end
+  return result, nil
+end
+
+function M.assign_issue(issue_key, account_id)
+  return curl_request("PUT", "/rest/api/3/issue/" .. issue_key .. "/assignee", { accountId = account_id })
+end
+
 return M

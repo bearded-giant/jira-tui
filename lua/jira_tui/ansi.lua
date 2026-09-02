@@ -4,6 +4,7 @@ M.RESET = "\27[0m"
 M.BOLD = 1
 M.DIM = 2
 M.ITALIC = 3
+M.UNDERLINE = 4
 M.REVERSE = 7
 
 -- jim's catppuccin-ish palette (hex -> truecolor). keeps the look the user tuned.
@@ -116,17 +117,25 @@ end
 -- exactly `width` cells: cut if over, pad if under
 function M.fitline(s, width) return M.padline(M.cut(s, width), width) end
 
+-- first `n` display cells (sgr passes through at zero width), plus the rest
 local function take(s, n)
   local i, c = 1, 0
-  while i <= #s and c < n do
-    local b = s:byte(i)
-    i = i + (b < 0x80 and 1 or b < 0xE0 and 2 or b < 0xF0 and 3 or 4)
-    c = c + 1
+  while i <= #s do
+    local esc = s:match("^\27%[[%d;?]*m", i)
+    if esc then
+      i = i + #esc
+    else
+      if c >= n then break end
+      local b = s:byte(i)
+      i = i + (b < 0x80 and 1 or b < 0xE0 and 2 or b < 0xF0 and 3 or 4)
+      c = c + 1
+    end
   end
   return s:sub(1, i - 1), s:sub(i)
 end
 
--- greedy word wrap to `width` cells; words wider than the line (urls) are hard-split.
+-- greedy word wrap to `width` cells, sgr-aware; words wider than the line (urls)
+-- are hard-split. a style spanning a split shows only until the row's end reset.
 -- ponytail: continuation lines lose the bullet indent; add hanging indent if it grates
 function M.wrap(s, width)
   if M.width(s) <= width then return { s } end

@@ -44,6 +44,26 @@ function M.age(iso)
   return math.floor(days / 365) .. "y"
 end
 
+-- client-side board filter: plain case-insensitive substring on summary or key
+function M.matches(issue, filter)
+  if not filter or filter == "" then return true end
+  local f = filter:lower()
+  return (issue.summary or ""):lower():find(f, 1, true) ~= nil
+    or (issue.key or ""):lower():find(f, 1, true) ~= nil
+end
+
+-- "PE-1472", "Add rate limit" -> "pe-1472-add-rate-limit" (capped ~50, clean tail)
+function M.branch_name(key, summary)
+  local name = (key or ""):lower()
+  local slug = (summary or ""):lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+  if slug ~= "" then name = name .. "-" .. slug end
+  if #name > 50 then
+    name = name:sub(1, 50)
+    name = name:match("^(.-)%-[^%-]*$") or name -- drop the cut-off word
+  end
+  return (name:gsub("%-+$", ""))
+end
+
 function M.format_time(seconds)
   if not seconds or seconds <= 0 then return "0" end
   local hours = seconds / 3600

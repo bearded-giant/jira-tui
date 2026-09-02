@@ -138,12 +138,19 @@ function M.detail(title, text)
       term.moveto(top + i, left + 2)
       term.out(ansi.fgtext(lines[scroll + i] or "", C.text))
     end
+    local pos
+    if #lines <= body then pos = "all"
+    elseif scroll <= 0 then pos = "top"
+    elseif scroll >= #lines - body then pos = "bot"
+    else pos = math.floor((scroll + body) / #lines * 100) .. "%" end
     term.moveto(top + h - 1, left + 2)
-    term.out(ansi.fgtext(" j/k scroll   q back ", C.overlay))
+    term.out(ansi.fgtext(" j/k scroll   q back   " .. pos .. " ", C.overlay))
     local k; repeat k = term.read_key() until k
     if k == "q" or k == "esc" or k == "ctrl-c" then return end
     if (k == "j" or k == "down" or k == "wheeldown") and scroll < #lines - body then scroll = scroll + 1 end
     if (k == "k" or k == "up" or k == "wheelup") and scroll > 0 then scroll = scroll - 1 end
+    if k == "ctrl-d" or k == "pgdn" then scroll = math.min(math.max(0, #lines - body), scroll + math.floor(body / 2)) end
+    if k == "ctrl-u" or k == "pgup" then scroll = math.max(0, scroll - math.floor(body / 2)) end
     if k == "g" then scroll = 0 end
     if k == "G" then scroll = math.max(0, #lines - body) end
   end
@@ -159,14 +166,18 @@ local HELP = {
   { "Navigation", {
     { "j / k", "Move (mouse wheel too)" }, { "⏎", "Open issue (expand if it has subtasks)" },
     { "Space / Tab / o", "Expand / collapse" }, { "Ctrl-d / Ctrl-u", "Half page down / up" },
-    { "t", "Toggle all" }, { "/", "Filter by summary" }, { "BS", "Clear filter" },
+    { "t", "Toggle all" }, { "/", "Filter loaded rows (summary / key, instant)" }, { "BS", "Clear filter" },
     { "gg / G", "Top / bottom" }, { "x", "Show/hide resolved" },
   } },
   { "Issue", {
-    { "K / m", "Details / markdown" }, { "s", "Change status" }, { "b / gx", "Open in browser" },
-    { "y", "Copy key" }, { "gs", "Sort column" },
+    { "K / m", "Details + comments / raw markdown" }, { "s", "Change status" },
+    { "a / A", "Assign (picker) / assign to me" }, { "b / gx", "Open in browser" },
+    { "y / Y", "Copy key / url" }, { "gb", "Copy git branch name" }, { "gs", "Sort column" },
   } },
-  { "General", { { "r", "Refresh" }, { "H", "Help (Esc / q closes it)" }, { "q / Esc", "Quit" } } },
+  { "General", {
+    { "r", "Refresh" }, { "H / ?", "Help (q / Esc closes it)" },
+    { "q", "Back (closes popups, never the app)" }, { "Esc", "Quit" },
+  } },
 }
 
 function M.help_lines(width)

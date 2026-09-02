@@ -1,4 +1,5 @@
 local ansi = require("jira_tui.ansi")
+local md = require("jira_tui.md")
 local model = require("jira_tui.model")
 
 local M = {}
@@ -115,7 +116,7 @@ end
 
 -- ---- hint / filter line ----
 -- tab keys (M/J/S/B/H) live in the header; footer shows actions only
-local HINTS = { "j/k move", "⏎ open", "t all", "/ filter", "p project", "K detail", "b open", "r refresh", "q quit" }
+local HINTS = { "j/k move", "⏎ open", "/ filter", "s status", "a assign", "K detail", "b open", "r refresh", "Esc quit" }
 
 function M.hint_line(view, filter, width)
   if filter and filter ~= "" then
@@ -124,7 +125,7 @@ function M.hint_line(view, filter, width)
   local items = {}
   for i, h in ipairs(HINTS) do items[i] = h end
   local function line() return "  " .. table.concat(items, "   ") end
-  -- narrow board: drop hints from the tail, but always keep "q quit"
+  -- narrow board: drop hints from the tail, but always keep "Esc quit"
   while width and #items > 1 and ansi.width(line()) > width do table.remove(items, #items - 1) end
   return ansi.fgtext(line(), C.overlay)
 end
@@ -143,8 +144,9 @@ end
 
 -- ---- detail popup body ----
 -- mode "markdown": raw markdown (title, description, acceptance criteria).
--- mode "fields" (default): labelled header, then description + acceptance criteria sections.
-function M.detail_text(issue, p_config, mode)
+-- mode "fields" (default): labelled header, description + acceptance criteria +
+-- comments (newest first), markdown-rendered.
+function M.detail_text(issue, p_config, mode, comments)
   local f = issue.fields or {}
   local function name(t) return type(t) == "table" and (t.displayName or t.name) or nil end
   local desc = model.adf_to_markdown(f.description)
@@ -175,8 +177,19 @@ function M.detail_text(issue, p_config, mode)
   end
   local function section(label) lines[#lines + 1] = ""; lines[#lines + 1] = ansi.fgtext(label, C.yellow, ansi.BOLD); lines[#lines + 1] = "" end
   section("Description")
-  lines[#lines + 1] = desc
-  if ac then section("Acceptance Criteria"); lines[#lines + 1] = ac end
+  lines[#lines + 1] = md.to_ansi(desc)
+  if ac then section("Acceptance Criteria"); lines[#lines + 1] = md.to_ansi(ac) end
+  if comments and #comments > 0 then
+    section("Comments (" .. #comments .. ")")
+    for _, cm in ipairs(comments) do
+      local who = type(cm.author) == "table" and cm.author.displayName or "unknown"
+      local when = model.short_date(cm.created)
+      local age = model.age(cm.created)
+      lines[#lines + 1] = ansi.fgtext("── " .. who .. " · " .. when .. (age ~= "" and "  (" .. age .. ")" or "") .. " ──", C.sky)
+      local body = type(cm.body) == "table" and model.adf_to_markdown(cm.body) or tostring(cm.body or "")
+      lines[#lines + 1] = md.to_ansi(body)
+    end
+  end
   return table.concat(lines, "\n")
 end
 

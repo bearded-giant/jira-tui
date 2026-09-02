@@ -86,16 +86,20 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `p` | set / change the project (for sprint + backlog) |
 | `J` | JQL picker (history, or new query) · `gj` new query |
 | `gs` | sort by column |
-| `/` | filter by summary · `BS` clear |
+| `/` | filter loaded rows by summary or key (instant, no refetch) · `BS` clear |
 | `x` | show / hide resolved |
-| `K` / `m` | issue detail / markdown |
+| `K` / `m` | issue detail with comments / raw markdown |
 | `s` | change issue status |
+| `a` / `A` | assign (user picker) / assign to me |
 | `b` / `gx` | open issue in browser |
-| `y` | copy issue key |
-| `r` | refresh |
-| `q` / `Esc` | quit |
+| `y` / `Y` | copy issue key / url |
+| `gb` | copy a git branch name (`pe-1472-add-rate-limit`) |
+| `r` | refresh (keeps cursor and filter) |
+| `?` / `H` | help |
+| `q` | back: closes detail / help / pickers, never the app |
+| `Esc` | quit |
 
-`/` opens a prompt; submit empty to clear the filter. In the detail view, `j`/`k` scroll and `q` returns to the board.
+`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, and `q` returns to the board.
 
 ## Layout
 
@@ -136,7 +140,7 @@ Everything lives under `~/.config/jira-tui/`. Settings go in `config.lua`; the J
 
 ## Status
 
-MVP: view, navigate, JQL, filter, read descriptions. Editing, status changes, assignment, and creating issues are not implemented yet.
+View, navigate, JQL, instant filter, rendered descriptions and comments, status changes, and assignment. Editing, creating, and closing issues are not implemented yet.
 
 ## Credits
 

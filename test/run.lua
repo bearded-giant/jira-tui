@@ -277,7 +277,7 @@ do
 
   ok(not plain(render.column_header(76)):find("Created"), "Created dropped at 76 (80-col terminal)")
   ok(plain(render.column_header(100)):find("Created"), "Created shown at 100")
-  ok(plain(render.hint_line("x", nil, 60)):find("q quit", 1, true), "narrow hint keeps q quit")
+  ok(plain(render.hint_line("x", nil, 60)):find("Esc quit", 1, true), "narrow hint keeps Esc quit")
 end
 
 -- ---- status badge colors ----
@@ -389,6 +389,13 @@ do
   eq(table.concat(hard, ""), "https://example.com/a/very/long/path/that/never/breaks", "hard split loses no chars")
   eq(#ansi.wrap("", 10), 1, "empty line stays one blank line")
 
+  -- sgr-aware: styled overlong token splits at display cells, not bytes
+  local styled_url = ansi.fgtext("https://example.com/very/long/styled/path/segment", ansi.color.sky, ansi.UNDERLINE)
+  local sw2 = ansi.wrap("see " .. styled_url .. " end", 14)
+  for _, l in ipairs(sw2) do ok(ansi.width(l) <= 14, "styled wrap line fits: " .. ansi.strip(l)) end
+  eq(ansi.strip(table.concat(sw2, "")):gsub(" ", ""), "seehttps://example.com/very/long/styled/path/segmentend",
+    "styled wrap loses no visible chars")
+
   local issue = { key = "X-1", fields = {
     summary = "Sum", status = { name = "In Progress" }, issuetype = { name = "Story" },
     priority = { name = "High" }, assignee = { displayName = "Ann" }, created = "2026-01-01T00:00:00.000+0000",
@@ -411,6 +418,78 @@ do
   local bare = plain(render.detail_text({ key = "X-2", fields = {} }, pc, "fields"))
   ok(bare:find("(no description)", 1, true), "empty issue: no description placeholder")
   ok(not bare:find("Acceptance", 1, true), "empty issue: no AC section")
+end
+
+-- ---- board filter + branch names ----
+do
+  ok(model.matches({ summary = "Add Cloud Armor", key = "SEC-1" }, "cloud"), "filter matches summary, case-insensitive")
+  ok(model.matches({ summary = "x", key = "SEC-4046" }, "4046"), "filter matches key")
+  ok(model.matches({ summary = "x", key = "K-1" }, nil), "nil filter matches all")
+  ok(model.matches({ summary = "x", key = "K-1" }, ""), "empty filter matches all")
+  ok(not model.matches({ summary = "abc", key = "K-1" }, "zzz"), "filter miss")
+  ok(model.matches({ key = "K-1" }, "k-1"), "nil summary safe")
+
+  eq(model.branch_name("PE-1472", "Add rate limit"), "pe-1472-add-rate-limit", "branch name basic")
+  eq(model.branch_name("REF-9", "Fix: weird (chars) & stuff!!"), "ref-9-fix-weird-chars-stuff", "branch name strips punctuation")
+  local long = model.branch_name("SEC-3577", "Upgrade pyjwt in customcheckout to >= 2.12.0 and more words here")
+  ok(#long <= 50, "branch name capped at 50")
+  ok(not long:match("%-$"), "branch name no trailing dash")
+  eq(model.branch_name("X-1", ""), "x-1", "branch name empty summary is just the key")
+end
+
+-- ---- detail comments section ----
+do
+  local render = require("jira_tui.render")
+  local function plain(s) return (s:gsub("\27%[[%d;?]*m", "")) end
+  local issue = { key = "X-1", fields = { summary = "S" } }
+  local pc = { story_point_field = "sp", acceptance_criteria_field = "ac" }
+  local comments = {
+    { author = { displayName = "Ann" }, created = "2026-08-31T10:00:00.000-0400",
+      body = { type = "doc", content = { { type = "paragraph", content = { { type = "text", text = "looks good" } } } } } },
+    { author = { displayName = "Bob" }, created = "2026-07-01T10:00:00.000-0400", body = "plain string body" },
+  }
+  local out = plain(render.detail_text(issue, pc, "fields", comments))
+  ok(out:find("Comments (2)", 1, true), "comments section header with count")
+  ok(out:find("Ann · 2026%-08%-31"), "comment author + date")
+  ok(out:find("looks good", 1, true), "adf comment body rendered")
+  ok(out:find("Bob", 1, true) and out:find("plain string body", 1, true), "string comment body passes through")
+  ok(not plain(render.detail_text(issue, pc, "fields", nil)):find("Comments", 1, true), "no comments -> no section")
+  ok(not plain(render.detail_text(issue, pc, "fields", {})):find("Comments", 1, true), "empty comments -> no section")
+end
+
+-- ---- markdown -> ansi (detail popup rendering) ----
+do
+  local mdr = require("jira_tui.md")
+  local function plain(s) return (s:gsub("\27%[[%d;?]*m", "")) end
+
+  eq(plain(mdr.to_ansi("## Context")), "Context", "heading hashes stripped")
+  eq(plain(mdr.to_ansi("# Top")), "Top", "h1 hashes stripped")
+  eq(plain(mdr.to_ansi("[https://x.com/a](https://x.com/a)")), "https://x.com/a", "text==url link deduped")
+  eq(plain(mdr.to_ansi("see [docs](https://x.com)")), "see docs (https://x.com)", "text!=url keeps both")
+  eq(plain(mdr.to_ansi("run `make check` now")), "run make check now", "inline code markers stripped")
+  eq(plain(mdr.to_ansi("**bold** rest")), "bold rest", "bold markers stripped")
+  ok(mdr.to_ansi("**b**"):find(";1m"), "bold styled")
+  eq(plain(mdr.to_ansi("- item one")), "• item one", "bullet glyph")
+  eq(plain(mdr.to_ansi("rate_limit_x and _snake_case_ safe")), "rate_limit_x and _snake_case_ safe",
+    "underscores untouched (no italic mangling)")
+  ok(plain(mdr.to_ansi("---")):find("──────", 1, true), "hr becomes rule")
+
+  local fenced = plain(mdr.to_ansi("```lua\nlocal x = 1\n```"))
+  ok(fenced:find("── lua "), "fence open shows language")
+  ok(fenced:find("  local x = 1", 1, true), "fence content indented, no backticks")
+  ok(not fenced:find("```", 1, true), "fence markers gone")
+
+  local q = plain(mdr.to_ansi("> quoted one> quoted two"))
+  ok(q:find("│ quoted one", 1, true) and q:find("│ quoted two", 1, true), "adf-collapsed quote split into rows")
+
+  -- fields detail runs the description through md
+  local render = require("jira_tui.render")
+  local issue = { key = "X-1", fields = { summary = "S",
+    description = { type = "doc", content = { { type = "heading", attrs = { level = 2 },
+      content = { { type = "text", text = "Ctx" } } } } } } }
+  local pc = { story_point_field = "sp", acceptance_criteria_field = "ac" }
+  ok(not plain(render.detail_text(issue, pc, "fields")):find("## Ctx", 1, true), "fields mode renders markdown")
+  ok(render.detail_text(issue, pc, "markdown"):find("## Ctx", 1, true), "markdown mode stays raw")
 end
 
 -- ---- ansi.cut / fitline (sgr-aware truncation) ----

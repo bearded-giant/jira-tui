@@ -61,10 +61,13 @@ function M.run(opts)
   end
 
   -- rebuild tree from st.raw. keep_key: re-seat the cursor on that issue if it is still shown.
+  -- st.filter applies here, client-side over fetched rows -- no refetch per keystroke.
   local function rebuild(keep_key)
     local issues = {}
     for _, iss in ipairs(st.raw) do
-      if not (st.hide_resolved and iss.status_category == "Done") then issues[#issues + 1] = iss end
+      if not (st.hide_resolved and iss.status_category == "Done") and model.matches(iss, st.filter) then
+        issues[#issues + 1] = iss
+      end
     end
     st.count = #issues
     st.roots = model.build_issue_tree(issues)
@@ -81,12 +84,13 @@ function M.run(opts)
     return false
   end
 
+  -- filter is client-side (rebuild); a refresh of the same view keeps it, a view switch clears it
   local function load_view(view, filter)
     local keep = view == st.view and cur_node() or nil
     local old_scroll = st.scroll
     st.loading = "loading " .. render.view_label(view) .. "…"
     if draw then draw() end
-    local issues, err, truncated = opts.load(view, filter, st.project)
+    local issues, err, truncated = opts.load(view, nil, st.project)
     st.loading = nil
     if err then st.message = err; return false end
     st.view, st.filter, st.raw, st.truncated = view, filter, issues or {}, truncated
@@ -151,10 +155,22 @@ function M.run(opts)
 
     local vtxt = " v" .. version .. " "
     local ltxt = st.loading and (" ● " .. st.loading .. " ") or ""
-    local fill = math.max(0, bw - 2 - ansi.width(ltxt) - ansi.width(vtxt))
+    local ptxt = ""
+    if not st.help and #st.flat > 0 then
+      local cur, tot = 0, 0
+      for i, e in ipairs(st.flat) do
+        if not e.spacer then
+          tot = tot + 1
+          if i <= st.cursor then cur = cur + 1 end
+        end
+      end
+      ptxt = " " .. cur .. "/" .. tot .. " "
+    end
+    local fill = math.max(0, bw - 2 - ansi.width(ltxt) - ansi.width(ptxt) - ansi.width(vtxt))
     frame[bh - 1] = ansi.fgtext("╰", C.sky)
       .. (ltxt ~= "" and ansi.fgtext(ltxt, C.yellow, ansi.BOLD) or "")
       .. ansi.fgtext(string.rep("─", fill), C.sky)
+      .. ansi.fgtext(ptxt, C.overlay)
       .. ansi.fgtext(vtxt, C.overlay) .. ansi.fgtext("╯", C.sky)
 
     local buf = {}
@@ -209,6 +225,7 @@ function M.run(opts)
     if not n then return end
     st.message = "loading " .. n.key .. "…"; draw()
     local issue, err = api.get_issue(n.key)
+    local comments = mode ~= "markdown" and api.get_comments(n.key, 15) or nil
     st.message = nil
     if err or type(issue) ~= "table" or type(issue.fields) ~= "table" then
       local jira_err = type(issue) == "table" and type(issue.errorMessages) == "table"
@@ -218,7 +235,57 @@ function M.run(opts)
     end
     draw() -- clear the "loading" footer before the popup covers the board
     local project = type(issue.fields.project) == "table" and issue.fields.project.key or n.key:match("^(.-)%-")
-    ui.detail(n.key .. "  " .. (n.summary or ""), render.detail_text(issue, config.get_project_config(project), mode))
+    ui.detail(n.key .. "  " .. (n.summary or ""),
+      render.detail_text(issue, config.get_project_config(project), mode, comments))
+  end
+
+  -- clipboard chain; honest success only
+  local function yank(txt, what)
+    local copied = false
+    for _, tool in ipairs({ "pbcopy", "xclip -selection clipboard", "wl-copy" }) do
+      local bin = tool:match("^%S+")
+      local ok = os.execute("command -v " .. bin .. " >/dev/null 2>&1")
+      if ok == true or ok == 0 then
+        ok = os.execute(string.format("printf %%s %q | %s 2>/dev/null", txt, tool))
+        if ok == true or ok == 0 then copied = true; break end
+      end
+    end
+    st.message = copied and ("copied " .. what) or "copy failed: no clipboard tool (pbcopy / xclip / wl-copy)"
+    st.message_ok = copied
+  end
+
+  local function do_assign(n, account_id, label)
+    st.message = "assigning " .. n.key .. "…"; draw()
+    local _, aerr = api.assign_issue(n.key, account_id)
+    if aerr then st.message = n.key .. ": " .. aerr; return end
+    load_view(st.view, st.filter)
+    st.message = n.key .. " → " .. label
+    st.message_ok = true
+  end
+
+  local function assign_picker(n)
+    if not n then return end
+    st.message = "loading assignable users…"; draw()
+    local users, uerr = api.get_assignable(n.key)
+    st.message = nil
+    if uerr or type(users) ~= "table" or #users == 0 then
+      st.message = n.key .. ": " .. (uerr or "no assignable users"); return
+    end
+    draw()
+    local choice = ui.select("Assign: " .. n.key .. "  (" .. (n.assignee or "Unassigned") .. ")", users,
+      { format = function(u) return u.displayName or "?" end })
+    if choice then do_assign(n, choice.accountId, choice.displayName) end
+  end
+
+  local function assign_me(n)
+    if not n then return end
+    st.message = "resolving current user…"; draw()
+    local me, merr = api.get_myself()
+    st.message = nil
+    if merr or type(me) ~= "table" or not me.accountId then
+      st.message = merr or "cannot resolve current user"; return
+    end
+    do_assign(n, me.accountId, me.displayName or "me")
   end
 
   local function toggle_expand(n)
@@ -272,13 +339,14 @@ function M.run(opts)
       if st.help then
         swallowed = true
         if k == "ctrl-c" then break
-        elseif k == "q" or k == "esc" or k == "H" then st.help = false
+        elseif k == "q" or k == "esc" or k == "H" or k == "?" then st.help = false
         elseif ({ M = 1, S = 1, B = 1, J = 1, left = 1, right = 1 })[k] then st.help = false; swallowed = false
         end
       end
 
       if swallowed then -- redraw only
-      elseif k == "q" or k == "esc" or k == "ctrl-c" then break
+      elseif k == "esc" or k == "ctrl-c" then break
+      elseif k == "q" then st.message = "q goes back · Esc quits" -- q never closes the tui
       elseif k == "j" or k == "down" then st.cursor = step(st.cursor, 1)
       elseif k == "k" or k == "up" then st.cursor = step(st.cursor, -1)
       elseif k == "wheeldown" then for _ = 1, 3 do st.cursor = step(st.cursor, 1) end
@@ -302,11 +370,12 @@ function M.run(opts)
         local p = ui.input("Project key", { value = st.project or "", width = 40 })
         if p and p ~= "" then st.project = p:upper(); load_view("Active Sprint", nil) end
       elseif k == "J" then pick_jql()
-      elseif k == "H" then st.help = true; st.message = nil
+      elseif k == "H" or k == "?" then st.help = true; st.message = nil
       elseif k == "/" then
-        local f = ui.input("Filter (summary ~)", { value = st.filter or "", width = 50 })
-        if f ~= nil then load_view(st.view, f ~= "" and f or nil) end
-      elseif k == "bs" then if st.filter then load_view(st.view, nil) end
+        local f = ui.input("Filter (summary / key)", { value = st.filter or "", width = 50 })
+        if f ~= nil then st.filter = f ~= "" and f or nil; rebuild(n and n.key) end
+      elseif k == "bs" then
+        if st.filter then st.filter = nil; rebuild(n and n.key) end
       elseif k == "x" then
         st.hide_resolved = not st.hide_resolved
         if persist then persist.data.hide_resolved = st.hide_resolved; persist.save() end
@@ -314,20 +383,11 @@ function M.run(opts)
       elseif k == "K" then show_detail(n, "fields")
       elseif k == "m" then show_detail(n, "markdown")
       elseif k == "y" then
-        if n then
-          local copied = false
-          for _, tool in ipairs({ "pbcopy", "xclip -selection clipboard", "wl-copy" }) do
-            local bin = tool:match("^%S+")
-            local ok = os.execute("command -v " .. bin .. " >/dev/null 2>&1")
-            if ok == true or ok == 0 then
-              ok = os.execute(string.format("printf %%s %q | %s 2>/dev/null", n.key, tool))
-              if ok == true or ok == 0 then copied = true; break end
-            end
-          end
-          st.message = copied and ("copied " .. n.key)
-            or "copy failed: no clipboard tool (pbcopy / xclip / wl-copy)"
-          st.message_ok = copied
-        end
+        if n then yank(n.key, n.key) end
+      elseif k == "Y" then
+        if n then yank(config.options.jira.base .. "/browse/" .. n.key, n.key .. " url") end
+      elseif k == "a" then assign_picker(n)
+      elseif k == "A" then assign_me(n)
       elseif k == "r" then load_view(st.view, st.filter)
       elseif k == "left" or k == "right" then
         local order = {} -- cycle order = render.TABS, minus hidden
@@ -348,6 +408,11 @@ function M.run(opts)
         local nk; repeat nk = term.read_key() until nk
         if nk == "g" then st.cursor = 1
         elseif nk == "x" then open_browser(n)
+        elseif nk == "b" then
+          if n then
+            local br = model.branch_name(n.key, n.summary)
+            yank(br, "branch " .. br)
+          end
         elseif nk == "j" then run_jql(ui.input("New JQL", { multiline = true }))
         elseif nk == "s" then
           -- menu is the rendered column table, so menu/columns/indicator can't drift
@@ -360,8 +425,8 @@ function M.run(opts)
           end
         end
       elseif k == "s" then change_status(n)
-      elseif k == "c" or k == "d" or k == "e" or k == "a" then
-        st.message = "edit / create / assign not implemented yet"
+      elseif k == "c" or k == "d" or k == "e" then
+        st.message = "edit / create / close not implemented yet"
       end
       draw()
       end
