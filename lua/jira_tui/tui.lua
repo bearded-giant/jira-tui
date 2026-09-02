@@ -243,10 +243,10 @@ function M.run(opts)
     end
     local _, tcols = term.size()
     local rule_w = ui.detail_width(tcols) - 4
-    local text = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w })
+    local text = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w, comments_collapsed = true })
     local alt
     if comments and #comments > 0 then
-      alt = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w, comments_collapsed = true })
+      alt = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w })
     end
     local atts = type(issue.fields.attachment) == "table" and issue.fields.attachment or {}
     local on_open
