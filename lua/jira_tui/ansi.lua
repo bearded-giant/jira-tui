@@ -91,4 +91,60 @@ function M.padline(s, width)
   return s
 end
 
+-- hard-cut an sgr-containing string to `width` display cells. escapes pass through
+-- at zero width; a trailing reset closes whatever style was open at the cut.
+function M.cut(s, width)
+  if M.width(s) <= width then return s end
+  local out, n, i = {}, 0, 1
+  while i <= #s do
+    local esc = s:match("^\27%[[%d;?]*m", i)
+    if esc then
+      out[#out + 1] = esc
+      i = i + #esc
+    else
+      if n >= width then break end
+      local b = s:byte(i)
+      local len = b < 0x80 and 1 or b < 0xE0 and 2 or b < 0xF0 and 3 or 4
+      out[#out + 1] = s:sub(i, i + len - 1)
+      i = i + len
+      n = n + 1
+    end
+  end
+  return table.concat(out) .. M.RESET
+end
+
+-- exactly `width` cells: cut if over, pad if under
+function M.fitline(s, width) return M.padline(M.cut(s, width), width) end
+
+local function take(s, n)
+  local i, c = 1, 0
+  while i <= #s and c < n do
+    local b = s:byte(i)
+    i = i + (b < 0x80 and 1 or b < 0xE0 and 2 or b < 0xF0 and 3 or 4)
+    c = c + 1
+  end
+  return s:sub(1, i - 1), s:sub(i)
+end
+
+-- greedy word wrap to `width` cells; words wider than the line (urls) are hard-split.
+-- ponytail: continuation lines lose the bullet indent; add hanging indent if it grates
+function M.wrap(s, width)
+  if M.width(s) <= width then return { s } end
+  local out, cur = {}, nil
+  for tok in s:gmatch("%S+") do
+    local word = tok -- lua 5.4+: loop var is const
+    while M.width(word) > width do
+      if cur then out[#out + 1] = cur; cur = nil end
+      local head
+      head, word = take(word, width)
+      out[#out + 1] = head
+    end
+    if not cur then cur = word
+    elseif M.width(cur) + 1 + M.width(word) <= width then cur = cur .. " " .. word
+    else out[#out + 1] = cur; cur = word end
+  end
+  if cur then out[#out + 1] = cur end
+  return out
+end
+
 return M

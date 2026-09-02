@@ -3,12 +3,14 @@ local json = require("jira_tui.json")
 
 local M = {}
 
+-- mktemp creates 600 under umask 077 -- the -K file holds email:token
 local function write_tmp(content)
-  local path = os.tmpname()
-  -- lock perms before the secret lands -- the -K file holds email:token
-  io.open(path, "w"):close()
-  os.execute(string.format("chmod 600 %q 2>/dev/null", path))
-  local f = assert(io.open(path, "w"))
+  local p = io.popen("umask 077; mktemp 2>/dev/null")
+  local path = p and p:read("*l")
+  if p then p:close() end
+  if not path or path == "" then return nil, "mktemp failed" end
+  local f, ferr = io.open(path, "w")
+  if not f then os.remove(path); return nil, "cannot write temp file: " .. tostring(ferr) end
   f:write(content)
   f:close()
   return path
@@ -24,6 +26,11 @@ end
 function M._config_lines(env, method, endpoint, datafile)
   local lines = {
     "silent",
+    -- raw mode disables SIGINT, so a hung connection would freeze the tui with no escape
+    "connect-timeout = 5",
+    "max-time = 30",
+    -- trailing marker so the caller gets the real status (204 vs auth/404/network)
+    'write-out = "__http=%{http_code}"',
     "url = " .. q(env.base .. endpoint),
     "user = " .. q(env.email .. ":" .. env.token),
     "request = " .. q(method),
@@ -36,6 +43,8 @@ function M._config_lines(env, method, endpoint, datafile)
   return lines
 end
 
+M.CURL_ERRORS = { [6] = "could not resolve host", [7] = "could not connect", [28] = "timed out" }
+
 -- synchronous curl. secrets + body go through a -K config file and a data file
 -- so the token never lands in argv/ps and the shell never sees user input.
 local function curl_request(method, endpoint, data)
@@ -44,34 +53,56 @@ local function curl_request(method, endpoint, data)
     return nil, "missing jira config"
   end
 
-  local datafile
+  local datafile, derr
   if data then
     datafile = write_tmp(json.encode(data))
+    if not datafile then return nil, derr or "cannot write temp file" end
   end
 
-  local cfgfile = write_tmp(table.concat(M._config_lines(env, method, endpoint, datafile), "\n") .. "\n")
-  local pipe = io.popen("curl -K " .. q(cfgfile) .. " 2>/dev/null", "r")
-  local body = pipe and pipe:read("*a") or ""
-  local ok_close = pipe and pipe:close()
+  local cfgfile, cerr = write_tmp(table.concat(M._config_lines(env, method, endpoint, datafile), "\n") .. "\n")
+  if not cfgfile then
+    if datafile then os.remove(datafile) end
+    return nil, cerr or "cannot write temp file"
+  end
+  -- luajit's pclose() reports success for any exit code, so echo $? and parse it from the tail
+  local pipe = io.popen("curl -K " .. q(cfgfile) .. ' 2>/dev/null; echo "__rc=$?"', "r")
+  local out = pipe and pipe:read("*a") or ""
+  if pipe then pipe:close() end
 
   os.remove(cfgfile)
   if datafile then os.remove(datafile) end
 
-  if not ok_close then
-    return nil, "curl failed"
-  end
-  if body == "" then
-    -- empty is valid only for mutations (204). empty on a read = network/auth fail.
-    local is_mutation = method == "PUT"
-      or endpoint:find("/transitions") or endpoint:find("/worklog")
-    if is_mutation then return true, nil end
-    return nil, "empty response from jira (network, auth, or host?)"
+  local body, http, rc = out:match("^(.*)__http=(%d+)__rc=(%d+)%s*$")
+  rc, http = tonumber(rc), tonumber(http)
+  if not rc then return nil, "curl failed to run" end
+  if rc ~= 0 then
+    local why = M.CURL_ERRORS[rc]
+    return nil, "curl failed (exit " .. rc .. (why and ": " .. why or "") .. ")"
   end
 
-  local ok, result = pcall(json.decode, body)
-  if not ok then
-    return nil, "failed to parse json: " .. tostring(result) .. " | resp: " .. body:sub(1, 200)
+  local result
+  if body ~= "" then
+    local ok, parsed = pcall(json.decode, body)
+    if not ok then
+      return nil, "failed to parse json: " .. tostring(parsed) .. " | resp: " .. body:sub(1, 200)
+    end
+    result = parsed
   end
+
+  if http >= 400 then
+    local msg
+    if type(result) == "table" then
+      if type(result.errorMessages) == "table" and #result.errorMessages > 0 then
+        msg = table.concat(result.errorMessages, "; ")
+      elseif type(result.errors) == "table" then
+        local parts = {}
+        for k, v in pairs(result.errors) do parts[#parts + 1] = k .. ": " .. tostring(v) end
+        msg = table.concat(parts, "; ")
+      end
+    end
+    return nil, "HTTP " .. http .. (msg and msg ~= "" and (": " .. msg) or " from jira")
+  end
+  if result == nil then return true, nil end -- 2xx, no body (204 on mutations)
   return result, nil
 end
 

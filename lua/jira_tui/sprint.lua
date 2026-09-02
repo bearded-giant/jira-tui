@@ -65,30 +65,42 @@ local function fetch_all(project, jql)
     end
 
     if not result.nextPageToken or #all >= limit then
-      return all, nil
+      -- third value: more pages existed but the configured limit cut them off
+      return all, nil, (result.nextPageToken and #all >= limit) or nil
     end
     page_token = result.nextPageToken
   end
 end
 
-function M.get_active_sprint_issues(project, filter)
-  if not project then return nil, "project key required" end
-  local jql = string.format("project = '%s' AND sprint in openSprints()", project)
-  if filter and filter ~= "" then
-    jql = jql .. string.format(' AND summary ~ "%s"', filter)
-  end
-  return fetch_all(project, jql .. " ORDER BY Rank ASC")
+-- every user string that lands inside jql goes through here: an embedded quote
+-- otherwise yields invalid jql and a cryptic 400 from jira
+function M.jql_quote(s)
+  return '"' .. tostring(s):gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
 end
 
-function M.get_backlog_issues(project, filter)
-  if not project then return nil, "project key required" end
-  local jql = string.format(
-    "project = '%s' AND (sprint is EMPTY OR sprint not in openSprints()) AND statusCategory != Done",
-    project)
-  if filter and filter ~= "" then
-    jql = jql .. string.format(' AND summary ~ "%s"', filter)
+function M.valid_project(key)
+  return type(key) == "string" and key:match("^[A-Z][A-Z0-9_]+$") ~= nil
+end
+
+local function check_projects(list)
+  for _, p in ipairs(list) do
+    if not M.valid_project(p) then return nil, "invalid project key: " .. tostring(p) end
   end
-  return fetch_all(project, jql .. " ORDER BY Rank ASC")
+  return true
+end
+
+local function filter_clause(filter)
+  if filter and filter ~= "" then return " AND summary ~ " .. M.jql_quote(filter) end
+  return ""
+end
+
+function M.sprint_jql(project, filter)
+  return "project = " .. project .. " AND sprint in openSprints()" .. filter_clause(filter) .. " ORDER BY Rank ASC"
+end
+
+function M.backlog_jql(project, filter)
+  return "project = " .. project .. " AND (sprint is EMPTY OR sprint not in openSprints()) AND statusCategory != Done"
+    .. filter_clause(filter) .. " ORDER BY Rank ASC"
 end
 
 -- build the my-issues jql, optionally scoped to a configured project list
@@ -97,13 +109,34 @@ function M.my_issues_jql(projects, filter)
   if projects and #projects > 0 then
     jql = string.format("project in (%s) AND ", table.concat(projects, ", ")) .. jql
   end
-  if filter and filter ~= "" then
-    jql = jql .. string.format(' AND summary ~ "%s"', filter)
-  end
-  return jql .. " ORDER BY updated DESC"
+  return jql .. filter_clause(filter) .. " ORDER BY updated DESC"
+end
+
+-- add a summary filter to an arbitrary user query: wrap the body, keep its ORDER BY last
+function M.with_filter(jql, filter)
+  if not filter or filter == "" then return jql end
+  local body, order = jql:match("^(.-)%s+([Oo][Rr][Dd][Ee][Rr]%s+[Bb][Yy]%s.*)$")
+  body = body or jql
+  return "(" .. body .. ")" .. filter_clause(filter) .. (order and " " .. order or "")
+end
+
+function M.get_active_sprint_issues(project, filter)
+  if not project then return nil, "project key required" end
+  local ok, err = check_projects({ project })
+  if not ok then return nil, err end
+  return fetch_all(project, M.sprint_jql(project, filter))
+end
+
+function M.get_backlog_issues(project, filter)
+  if not project then return nil, "project key required" end
+  local ok, err = check_projects({ project })
+  if not ok then return nil, err end
+  return fetch_all(project, M.backlog_jql(project, filter))
 end
 
 function M.get_my_issues(projects, filter)
+  local ok, err = check_projects(projects or {})
+  if not ok then return nil, err end
   return fetch_all(nil, M.my_issues_jql(projects, filter))
 end
 
@@ -117,10 +150,10 @@ function M.normalize_jql(jql)
   return jql
 end
 
-function M.get_issues_by_jql(project, jql)
+function M.get_issues_by_jql(project, jql, filter)
   jql = M.normalize_jql(jql)
   if not jql or jql == "" then return nil, "jql required" end
-  return fetch_all(project, jql)
+  return fetch_all(project, M.with_filter(jql, filter))
 end
 
 return M
