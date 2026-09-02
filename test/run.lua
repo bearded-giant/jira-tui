@@ -245,6 +245,25 @@ do
   local child = plain(render.issue_line({ key = "A-2", summary = "c", type = "Bug", status = "Done" }, 2, 120, false, true))
   ok(child:find("└─"), "last child uses └─ connector")
 
+  -- regression: stripped/empty type glyphs shifted whole rows left of the header
+  local function key_col(line, key)
+    local i = line:find(key, 1, true)
+    return ansi.width(line:sub(1, i - 1))
+  end
+  local glyphed = plain(render.issue_line({ key = "B-1", summary = "s", type = "Story", status = "Backlog" }, 1, 120, false, true))
+  local fallback = plain(render.issue_line({ key = "B-2", summary = "s", type = "Vulnerability", status = "Backlog" }, 1, 120, false, true))
+  eq(key_col(glyphed, "B-1"), key_col(fallback, "B-2"), "key column aligned across icon variants")
+
+  -- detail sections: attachments listed, comment bodies hideable
+  local dissue = { key = "A-1", fields = { summary = "s",
+    attachment = { { filename = "shot.png", size = 2048, mimeType = "image/png" } } } }
+  local dcms = { { author = { displayName = "Dev" }, created = "2026-01-01T00:00:00.000+0000", body = "hello body" } }
+  local dfull = plain(render.detail_text(dissue, {}, "fields", dcms, { rule_w = 40 }))
+  ok(dfull:find("Attachments %(1%)") and dfull:find("shot%.png", 1, false), "attachments section listed")
+  ok(dfull:find("hello body", 1, true), "comment body shown when expanded")
+  local dcoll = plain(render.detail_text(dissue, {}, "fields", dcms, { rule_w = 40, comments_collapsed = true }))
+  ok(dcoll:find("Comments %(1%)") and not dcoll:find("hello body", 1, true), "collapsed comments hide bodies")
+
   -- regression: at 80 cols rows rendered 91 cells into a 76-cell interior and wrapped
   local node = { key = "PROJ-12345", summary = string.rep("long title ", 20), assignee = "Somebody Longname",
     created = "2026-01-01T00:00:00.000+0000", type = "Story", status = "In Progress" }
@@ -286,9 +305,13 @@ do
   eq(render.status_bg("To Do"), ansi.color.blue, "jira 'To Do' (with space) gets the todo color")
   eq(render.status_bg("TODO"), ansi.color.blue, "TODO")
   eq(render.status_bg("In Progress"), ansi.color.yellow, "In Progress")
-  eq(render.status_bg("Ready for QA"), ansi.color.surface, "Ready for wins over QA")
+  eq(render.status_bg("Ready for QA"), ansi.color.surface2, "Ready for wins over QA")
   eq(render.status_bg("Done"), ansi.color.green, "Done")
-  eq(render.status_bg(nil), ansi.color.surface, "nil -> default")
+  eq(render.status_bg(nil), ansi.color.surface2, "nil -> default")
+  local _, soft_fg = render.status_bg("Groomed")
+  eq(soft_fg, ansi.color.text, "unmatched status gets readable fg")
+  local _, done_fg = render.status_bg("Done")
+  eq(done_fg, ansi.color.base, "colored status keeps dark fg")
 end
 
 -- ---- fetch_all truncation flag ----

@@ -235,8 +235,33 @@ function M.run(opts)
     end
     draw() -- clear the "loading" footer before the popup covers the board
     local project = type(issue.fields.project) == "table" and issue.fields.project.key or n.key:match("^(.-)%-")
-    ui.detail(n.key .. "  " .. (n.summary or ""),
-      render.detail_text(issue, config.get_project_config(project), mode, comments))
+    local pcfg = config.get_project_config(project)
+    local title = n.key .. "  " .. (n.summary or "")
+    if mode == "markdown" then
+      ui.detail(title, render.detail_text(issue, pcfg, mode))
+      return
+    end
+    local _, tcols = term.size()
+    local rule_w = ui.detail_width(tcols) - 4
+    local text = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w })
+    local alt
+    if comments and #comments > 0 then
+      alt = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w, comments_collapsed = true })
+    end
+    local atts = type(issue.fields.attachment) == "table" and issue.fields.attachment or {}
+    local on_open
+    if #atts > 0 then
+      on_open = function()
+        local a = ui.select("Attachments: " .. n.key, atts, { format = function(x)
+          return (x.filename or "?") .. "   " .. (x.mimeType or "") end })
+        if not a then return end
+        local path, derr = api.download_attachment(a)
+        if not path then return "download failed: " .. (derr or "?") end
+        os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", path, path))
+        return "opened " .. path:match("([^/]+)$")
+      end
+    end
+    ui.detail(title, text, { alt = alt, on_open = on_open })
   end
 
   -- clipboard chain; honest success only

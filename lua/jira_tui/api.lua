@@ -55,7 +55,7 @@ local function curl_request(method, endpoint, data)
 
   local datafile, derr
   if data then
-    datafile = write_tmp(json.encode(data))
+    datafile, derr = write_tmp(json.encode(data))
     if not datafile then return nil, derr or "cannot write temp file" end
   end
 
@@ -158,6 +158,41 @@ end
 
 function M.assign_issue(issue_key, account_id)
   return curl_request("PUT", "/rest/api/3/issue/" .. issue_key .. "/assignee", { accountId = account_id })
+end
+
+-- download one attachment to a temp dir, return the local path.
+-- jira 303s to a signed media url; curl drops the auth header on the
+-- cross-host redirect, which is exactly what the media host expects.
+function M.download_attachment(att)
+  local env = config.options.jira
+  if env.base == "" or env.email == "" or env.token == "" then return nil, "missing jira config" end
+  local url = att.content or (env.base .. "/rest/api/3/attachment/content/" .. tostring(att.id or ""))
+  local name = tostring(att.filename or "attachment"):gsub("[^%w%.%- _]", "_")
+  local dir = ((os.getenv("TMPDIR") or "/tmp"):gsub("/$", "")) .. "/jira-tui"
+  os.execute("mkdir -p " .. q(dir) .. " >/dev/null 2>&1")
+  local dest = dir .. "/" .. name
+  local lines = {
+    "silent", "location", "connect-timeout = 5", "max-time = 60",
+    'write-out = "__http=%{http_code}"',
+    "url = " .. q(url),
+    "user = " .. q(env.email .. ":" .. env.token),
+    "output = " .. q(dest),
+  }
+  local cfgfile, cerr = write_tmp(table.concat(lines, "\n") .. "\n")
+  if not cfgfile then return nil, cerr or "cannot write temp file" end
+  local pipe = io.popen("curl -K " .. q(cfgfile) .. ' 2>/dev/null; echo "__rc=$?"', "r")
+  local out = pipe and pipe:read("*a") or ""
+  if pipe then pipe:close() end
+  os.remove(cfgfile)
+  local http, rc = out:match("__http=(%d+)__rc=(%d+)%s*$")
+  rc, http = tonumber(rc), tonumber(http)
+  if not rc then return nil, "curl failed to run" end
+  if rc ~= 0 then
+    local why = M.CURL_ERRORS[rc]
+    return nil, "curl failed (exit " .. rc .. (why and ": " .. why or "") .. ")"
+  end
+  if http ~= 200 then return nil, "http " .. tostring(http) end
+  return dest
 end
 
 return M

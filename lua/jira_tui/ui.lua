@@ -119,19 +119,31 @@ function M.select(title, items, opts)
   end
 end
 
+-- detail popup width, shared with render.detail_text separator sizing
+function M.detail_width(cols)
+  return math.min(math.max(96, math.floor(cols * 0.7)), cols - 2)
+end
+
 -- scrollable read-only detail box. text may contain newlines.
-function M.detail(title, text)
+-- opts: alt = second text ("c" toggles, comments collapsed view),
+--       on_open = called on "o" (attachments); may return a footer note.
+function M.detail(title, text, opts)
   M._dirty = true
+  opts = opts or {}
   local rows, cols = term.size()
-  local w = math.min(96, cols - 2)
+  local w = M.detail_width(cols)
   local h = rows - 2
   local top, left = center(rows, cols, w, h)
   local body = h - 2
-  local lines = {}
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    for _, wl in ipairs(ansi.wrap(line, w - 4)) do lines[#lines + 1] = wl end
+  local function build(t)
+    local ls = {}
+    for line in (t .. "\n"):gmatch("(.-)\n") do
+      for _, wl in ipairs(ansi.wrap(line, w - 4)) do ls[#ls + 1] = wl end
+    end
+    return ls
   end
-  local scroll = 0
+  local lines, alt_shown = build(text), false
+  local scroll, note = 0, nil
   while true do
     draw_box(top, left, w, h, title)
     for i = 1, body do
@@ -143,9 +155,13 @@ function M.detail(title, text)
     elseif scroll <= 0 then pos = "top"
     elseif scroll >= #lines - body then pos = "bot"
     else pos = math.floor((scroll + body) / #lines * 100) .. "%" end
+    local hints = " j/k scroll"
+      .. (opts.alt and "   c comments" or "") .. (opts.on_open and "   o attachment" or "")
+      .. "   q back   " .. (note and note .. "   " or "") .. pos .. " "
     term.moveto(top + h - 1, left + 2)
-    term.out(ansi.fgtext(" j/k scroll   q back   " .. pos .. " ", C.overlay))
+    term.out(ansi.fgtext(ansi.truncate(hints, w - 4), C.overlay))
     local k; repeat k = term.read_key() until k
+    note = nil
     if k == "q" or k == "esc" or k == "ctrl-c" then return end
     if (k == "j" or k == "down" or k == "wheeldown") and scroll < #lines - body then scroll = scroll + 1 end
     if (k == "k" or k == "up" or k == "wheelup") and scroll > 0 then scroll = scroll - 1 end
@@ -153,6 +169,15 @@ function M.detail(title, text)
     if k == "ctrl-u" or k == "pgup" then scroll = math.max(0, scroll - math.floor(body / 2)) end
     if k == "g" then scroll = 0 end
     if k == "G" then scroll = math.max(0, #lines - body) end
+    if k == "c" and opts.alt then
+      alt_shown = not alt_shown
+      lines = build(alt_shown and opts.alt or text)
+      scroll = math.min(scroll, math.max(0, #lines - body))
+    end
+    if k == "o" and opts.on_open then
+      note = opts.on_open()
+      M._dirty = true
+    end
   end
 end
 
@@ -170,7 +195,8 @@ local HELP = {
     { "gg / G", "Top / bottom" }, { "x", "Show/hide resolved" },
   } },
   { "Issue", {
-    { "K / m", "Details + comments / raw markdown" }, { "s", "Change status" },
+    { "K / m", "Details + comments / raw markdown" },
+    { "c / o (detail)", "Collapse comments / open attachment" }, { "s", "Change status" },
     { "a / A", "Assign (picker) / assign to me" }, { "b / gx", "Open in browser" },
     { "y / Y", "Copy key / url" }, { "gb", "Copy git branch name" }, { "gs", "Sort column" },
   } },

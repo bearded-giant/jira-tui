@@ -71,8 +71,12 @@ function M.summary_width(iw)
 end
 
 local TYPE_ICON = {
-  Bug = { "", C.red }, Story = { "", C.green }, Task = { "", C.blue },
-  ["Sub-task"] = { "󰙅", C.teal }, Subtask = { "󰙅", C.teal }, Epic = { "", C.mauve },
+  -- byte escapes: literal nerd-font PUA chars have been silently stripped by tooling before
+  Bug = { "\239\134\136", C.red },       -- U+F188 bug
+  Story = { "\239\128\174", C.green },   -- U+F02E bookmark
+  Task = { "\238\154\156", C.blue },     -- U+E69C checkbox
+  ["Sub-task"] = { "\243\176\153\133", C.teal }, Subtask = { "\243\176\153\133", C.teal }, -- U+F0645
+  Epic = { "\239\131\167", C.mauve },    -- U+F0E7 bolt
 }
 local function type_icon(t)
   local e = TYPE_ICON[t]
@@ -80,16 +84,17 @@ local function type_icon(t)
   return "●", C.green
 end
 
--- status keyword -> bg color (jim get_status_hl). spaces stripped so "To Do" matches TODO.
+-- status keyword -> pill bg + fg (jim get_status_hl). spaces stripped so "To Do" matches TODO.
+-- unmatched statuses get a light fg on surface2; base-on-surface was near invisible.
 function M.status_bg(status)
   local s = (status or ""):upper():gsub("%s", "")
-  if s:find("READYFOR") then return C.surface end
-  if s:find("DONE") or s:find("RESOLVED") or s:find("CLOSED") or s:find("FINISHED") then return C.green end
-  if s:find("PROGRESS") or s:find("DEVELOP") or s:find("BUILDING") or s:find("WORKING") then return C.yellow end
-  if s:find("TODO") or s:find("OPEN") or s:find("BACKLOG") then return C.blue end
-  if s:find("BLOCK") or s:find("REJECT") or s:find("BUG") or s:find("ERROR") then return C.red end
-  if s:find("REVIEW") or s:find("QA") or s:find("TEST") then return C.mauve end
-  return C.surface
+  if s:find("READYFOR") then return C.surface2, C.text end
+  if s:find("DONE") or s:find("RESOLVED") or s:find("CLOSED") or s:find("FINISHED") then return C.green, C.base end
+  if s:find("PROGRESS") or s:find("DEVELOP") or s:find("BUILDING") or s:find("WORKING") then return C.yellow, C.base end
+  if s:find("TODO") or s:find("OPEN") or s:find("BACKLOG") then return C.blue, C.base end
+  if s:find("BLOCK") or s:find("REJECT") or s:find("BUG") or s:find("ERROR") then return C.red, C.base end
+  if s:find("REVIEW") or s:find("QA") or s:find("TEST") then return C.mauve, C.base end
+  return C.surface2, C.text
 end
 local status_bg = M.status_bg
 
@@ -142,11 +147,20 @@ function M.column_header(board_w, sort_col, sort_dir)
   return string.rep(" ", GUTTER + ROOT_PREFIX) .. table.concat(cells, string.rep(" ", SEP))
 end
 
+local function human_size(n)
+  n = tonumber(n) or 0
+  if n >= 1048576 then return string.format("%.1fMB", n / 1048576) end
+  if n >= 1024 then return string.format("%.0fKB", n / 1024) end
+  return n .. "B"
+end
+
 -- ---- detail popup body ----
 -- mode "markdown": raw markdown (title, description, acceptance criteria).
--- mode "fields" (default): labelled header, description + acceptance criteria +
--- comments (newest first), markdown-rendered.
-function M.detail_text(issue, p_config, mode, comments)
+-- mode "fields" (default): labelled header, attachments, description +
+-- acceptance criteria + comments (newest first), markdown-rendered.
+-- opts: rule_w = section separator width; comments_collapsed = bodies hidden.
+function M.detail_text(issue, p_config, mode, comments, opts)
+  opts = opts or {}
   local f = issue.fields or {}
   local function name(t) return type(t) == "table" and (t.displayName or t.name) or nil end
   local desc = model.adf_to_markdown(f.description)
@@ -175,19 +189,42 @@ function M.detail_text(issue, p_config, mode, comments)
       lines[#lines + 1] = ansi.fgtext(ansi.pad(r[1], 10), C.sky) .. ansi.fgtext(tostring(r[2]), C.text)
     end
   end
-  local function section(label) lines[#lines + 1] = ""; lines[#lines + 1] = ansi.fgtext(label, C.yellow, ansi.BOLD); lines[#lines + 1] = "" end
+  local rule_w = opts.rule_w or 60
+  local function rule(label, color)
+    local t = " " .. label .. " "
+    return ansi.fgtext("──", C.overlay) .. ansi.fgtext(t, color or C.yellow, ansi.BOLD)
+      .. ansi.fgtext(string.rep("─", math.max(2, rule_w - 2 - ansi.width(t))), C.overlay)
+  end
+  local function section(label) lines[#lines + 1] = ""; lines[#lines + 1] = rule(label); lines[#lines + 1] = "" end
+
+  local atts = type(f.attachment) == "table" and f.attachment or {}
+  if #atts > 0 then
+    section("Attachments (" .. #atts .. ")")
+    for i, a in ipairs(atts) do
+      lines[#lines + 1] = ansi.fgtext(string.format("%2d. ", i), C.overlay)
+        .. ansi.fgtext(a.filename or "?", C.sky)
+        .. ansi.fgtext("   " .. human_size(a.size) .. "   " .. (a.mimeType or ""), C.overlay)
+    end
+  end
+
   section("Description")
   lines[#lines + 1] = md.to_ansi(desc)
   if ac then section("Acceptance Criteria"); lines[#lines + 1] = md.to_ansi(ac) end
   if comments and #comments > 0 then
     section("Comments (" .. #comments .. ")")
-    for _, cm in ipairs(comments) do
-      local who = type(cm.author) == "table" and cm.author.displayName or "unknown"
-      local when = model.short_date(cm.created)
-      local age = model.age(cm.created)
-      lines[#lines + 1] = ansi.fgtext("── " .. who .. " · " .. when .. (age ~= "" and "  (" .. age .. ")" or "") .. " ──", C.sky)
-      local body = type(cm.body) == "table" and model.adf_to_markdown(cm.body) or tostring(cm.body or "")
-      lines[#lines + 1] = md.to_ansi(body)
+    if opts.comments_collapsed then
+      lines[#lines + 1] = ansi.fgtext("collapsed, press c to show", C.overlay)
+    else
+      for _, cm in ipairs(comments) do
+        local who = type(cm.author) == "table" and cm.author.displayName or "unknown"
+        local when = model.short_date(cm.created)
+        local age = model.age(cm.created)
+        lines[#lines + 1] = rule(who .. " · " .. when .. (age ~= "" and "  (" .. age .. ")" or ""), C.sky)
+        lines[#lines + 1] = ""
+        local body = type(cm.body) == "table" and model.adf_to_markdown(cm.body) or tostring(cm.body or "")
+        lines[#lines + 1] = md.to_ansi(body)
+        lines[#lines + 1] = ""
+      end
     end
   end
   return table.concat(lines, "\n")
@@ -204,7 +241,8 @@ function M.issue_line(node, depth, board_w, selected, is_last)
   -- (one space). roots: chevron+icon. children: indent + connector + icon.
   local prefix, used
   if is_root then
-    local chev = (node.children and #node.children > 0) and (node.expanded and "" or "") or " "
+    local chev = (node.children and #node.children > 0)
+      and (node.expanded and "\239\145\188" or "\239\145\160") or " " -- U+F47C / U+F460 chevrons
     prefix = ansi.fgtext(chev, C.overlay) .. ansi.fgtext(icon, icon_c) .. " "
     used = 3
   else
@@ -213,6 +251,8 @@ function M.issue_line(node, depth, board_w, selected, is_last)
     prefix = indent .. ansi.fgtext(conn, C.overlay) .. ansi.fgtext(icon, icon_c) .. " "
     used = #indent + 4
   end
+  -- a stripped or missing icon glyph must not shift the row's columns
+  prefix = ansi.padline(prefix, used)
 
   -- shrink summary by however far this row's prefix exceeds a root prefix, so
   -- the trailing columns stay aligned across depths
@@ -234,7 +274,8 @@ function M.issue_line(node, depth, board_w, selected, is_last)
   local age = ansi.fgtext(ansi.fit(model.age(node.created), M.COL.age), C.subtext)
   -- status badge: bg color, dark fg
   local st = ansi.truncate(node.status or "", M.COL.status - 2)
-  local status = ansi.bgtext(" " .. ansi.pad(st, M.COL.status - 2) .. " ", C.base, status_bg(node.status), ansi.BOLD)
+  local sbg, sfg = status_bg(node.status)
+  local status = ansi.bgtext(" " .. ansi.pad(st, M.COL.status - 2) .. " ", sfg, sbg, ansi.BOLD)
 
   local gutter = selected and ansi.fgtext("▌", C.sky, ansi.BOLD) .. " " or "  "
   local cells = { key = key, summary = summary, assignee = assignee, created = created, age = age, status = status }

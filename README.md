@@ -89,6 +89,8 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `/` | filter loaded rows by summary or key (instant, no refetch) · `BS` clear |
 | `x` | show / hide resolved |
 | `K` / `m` | issue detail with comments / raw markdown |
+| `c` (in detail) | collapse / expand comments |
+| `o` (in detail) | pick an attachment, download and open it |
 | `s` | change issue status |
 | `a` / `A` | assign (user picker) / assign to me |
 | `b` / `gx` | open issue in browser |
@@ -99,7 +101,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `q` | back: closes detail / help / pickers, never the app |
 | `Esc` | quit |
 
-`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, and `q` returns to the board.
+`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` collapses the comments, `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), and `q` returns to the board.
 
 ## Layout
 
