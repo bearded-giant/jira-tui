@@ -341,6 +341,77 @@ function M.run(opts)
     st.message_ok = true
   end
 
+  local me_account -- cached accountId for self-assign on create
+  local function my_account_id()
+    if me_account then return me_account end
+    local me = api.get_myself()
+    me_account = type(me) == "table" and me.accountId or nil
+    return me_account
+  end
+
+  local function close_issue(n)
+    if not n then return end
+    st.message = "loading transitions for " .. n.key .. "…"; draw()
+    local trs, terr = api.get_transitions(n.key)
+    if terr or type(trs) ~= "table" or #trs == 0 then
+      st.message = n.key .. ": " .. (terr or "no transitions available"); return
+    end
+    local pick = model.pick_done_transition(trs)
+    if not pick then st.message = n.key .. ": no done/close transition"; return end
+    st.message = "closing " .. n.key .. "…"; draw()
+    local _, xerr = api.transition_issue(n.key, pick.id)
+    if xerr then st.message = n.key .. ": " .. xerr; return end
+    load_view(st.view, st.filter)
+    st.message = n.key .. " → " .. (type(pick.to) == "table" and pick.to.name or pick.name)
+    st.message_ok = true
+  end
+
+  local function edit_issue(n)
+    if not n then return end
+    local choice = ui.select("Edit: " .. n.key, { "Summary", "Append description", "Change status" })
+    if not choice then return end
+    if choice == "Change status" then return change_status(n) end
+    if choice == "Summary" then
+      local s = ui.input("Summary: " .. n.key, { value = n.summary or "", width = 76 })
+      if not s or s == "" then return end
+      st.message = "updating " .. n.key .. "…"; draw()
+      local _, uerr = api.update_issue(n.key, { summary = s })
+      if uerr then st.message = n.key .. ": " .. uerr; return end
+      load_view(st.view, st.filter)
+      st.message = n.key .. " summary updated"; st.message_ok = true
+      return
+    end
+    local txt = ui.input("Append description: " .. n.key, { multiline = true })
+    if not txt or txt == "" then return end
+    st.message = "loading " .. n.key .. "…"; draw()
+    local issue, ierr = api.get_issue(n.key)
+    if ierr or type(issue) ~= "table" or type(issue.fields) ~= "table" then
+      st.message = n.key .. ": " .. (ierr or "unexpected response"); return
+    end
+    st.message = "updating " .. n.key .. "…"; draw()
+    local _, uerr = api.update_issue(n.key, { description = api.append_to_adf(issue.fields.description, txt) })
+    if uerr then st.message = n.key .. ": " .. uerr; return end
+    load_view(st.view, st.filter)
+    st.message = n.key .. " description updated"; st.message_ok = true
+  end
+
+  local function create_story()
+    if not ensure_project() then return end
+    local txt = ui.input("New story in " .. st.project .. "  (title / --- / description)",
+      { multiline = true, height = 12 })
+    if not txt or txt == "" then return end
+    local title, desc = model.split_create_input(txt)
+    if title == "" then st.message = "create needs a title"; return end
+    st.message = "creating story in " .. st.project .. "…"; draw()
+    local res, cerr = api.create_issue(st.project, title, "Story",
+      { description = desc, assignee_account_id = my_account_id() })
+    if cerr then st.message = "create failed: " .. cerr; return end
+    load_view(st.view, st.filter)
+    st.message = "created " .. (type(res) == "table" and res.key or "issue")
+    st.message_ok = true
+  end
+
+
   local interactive = term.isatty()
   term.raw_on(); term.enter(); term.clear()
   local ok, err = pcall(function()
@@ -450,8 +521,9 @@ function M.run(opts)
           end
         end
       elseif k == "s" then change_status(n)
-      elseif k == "c" or k == "d" or k == "e" then
-        st.message = "edit / create / close not implemented yet"
+      elseif k == "d" then close_issue(n)
+      elseif k == "e" then edit_issue(n)
+      elseif k == "c" then create_story()
       end
       draw()
       end

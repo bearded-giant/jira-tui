@@ -44,6 +44,27 @@ function M.age(iso)
   return math.floor(days / 365) .. "y"
 end
 
+-- close shortcut: first transition landing on a done-ish status, in preference order
+function M.pick_done_transition(trs)
+  for _, want in ipairs({ "DONE", "CLOSED", "RESOLVED", "COMPLETE", "FINISHED" }) do
+    for _, t in ipairs(trs or {}) do
+      local to = ((type(t.to) == "table" and t.to.name or t.name) or ""):upper():gsub("%s", "")
+      if to:find(want, 1, true) then return t end
+    end
+  end
+  return nil
+end
+
+-- "title\n---\ndescription" -> title, description. no --- : first line is the
+-- title, the rest (if any) the description.
+function M.split_create_input(txt)
+  local title, desc = txt:match("^(.-)\n%-%-%-+\n(.*)$")
+  if not title then title, desc = txt:match("^([^\n]*)\n?(.*)$") end
+  title = (title or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\n", " ")
+  desc = (desc or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  return title, desc ~= "" and desc or nil
+end
+
 -- client-side board filter: plain case-insensitive substring on summary or key
 function M.matches(issue, filter)
   if not filter or filter == "" then return true end

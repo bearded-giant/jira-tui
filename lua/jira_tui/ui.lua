@@ -196,7 +196,9 @@ local HELP = {
   } },
   { "Issue", {
     { "K / m", "Details + comments / raw markdown" },
-    { "c / o (detail)", "Collapse comments / open attachment" }, { "s", "Change status" },
+    { "c / o (detail)", "Expand comments / open attachment" }, { "s", "Change status" },
+    { "e", "Edit (summary / append description / status)" },
+    { "c / d", "Create story / close (first done-ish transition)" },
     { "a / A", "Assign (picker) / assign to me" }, { "b / gx", "Open in browser" },
     { "y / Y", "Copy key / url" }, { "gb", "Copy git branch name" }, { "gs", "Sort column" },
   } },

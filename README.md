@@ -89,6 +89,9 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `/` | filter loaded rows by summary or key (instant, no refetch) · `BS` clear |
 | `x` | show / hide resolved |
 | `K` / `m` | issue detail with comments / raw markdown |
+| `e` | edit issue: summary, append description, or status |
+| `c` | create story in the current project (assigned to you) |
+| `d` | close issue via the first done-ish transition |
 | `c` (in detail) | expand / collapse comments (start collapsed) |
 | `o` (in detail) | pick an attachment, download and open it |
 | `s` | change issue status |
@@ -142,7 +145,7 @@ Everything lives under `~/.config/jira-tui/`. Settings go in `config.lua`; the J
 
 ## Status
 
-View, navigate, JQL, instant filter, rendered descriptions and comments, status changes, and assignment. Editing, creating, and closing issues are not implemented yet.
+View, navigate, JQL, instant filter, rendered descriptions and comments, status changes, assignment, editing (summary / append description), creating stories, and closing issues. Worklog entry has an API method but no key yet.
 
 ## Credits
 

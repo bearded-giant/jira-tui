@@ -314,6 +314,47 @@ do
   eq(done_fg, ansi.color.base, "colored status keeps dark fg")
 end
 
+-- ---- crud helpers ----
+do
+  local api = require("jira_tui.api")
+  local model = require("jira_tui.model")
+  local json = require("jira_tui.json")
+
+  local adf = api.text_to_adf("line one\n\nline two")
+  eq(adf.type, "doc", "text_to_adf builds a doc")
+  eq(#adf.content, 3, "two lines + blank = 3 paragraphs")
+  eq(adf.content[1].content[1].text, "line one", "first paragraph text")
+  eq(#adf.content[2].content, 0, "blank line = empty paragraph")
+  ok(json.encode(adf.content[2].content) == "[]", "empty paragraph encodes as [], not {}")
+  eq(api.text_to_adf(""), nil, "empty text -> nil adf")
+
+  local appended = api.append_to_adf(adf, "line three")
+  eq(#appended.content, 4, "append adds a paragraph")
+  eq(appended.content[4].content[1].text, "line three", "appended text")
+  local fresh = api.append_to_adf(nil, "solo")
+  eq(fresh.content[1].content[1].text, "solo", "append to nil starts a new doc")
+
+  local trs = {
+    { id = "1", name = "Start", to = { name = "In Progress" } },
+    { id = "2", name = "Close it", to = { name = "Closed" } },
+    { id = "3", name = "Finish", to = { name = "Done" } },
+  }
+  eq(model.pick_done_transition(trs).id, "3", "Done preferred over Closed")
+  eq(model.pick_done_transition({ trs[1], trs[2] }).id, "2", "Closed when no Done")
+  eq(model.pick_done_transition({ trs[1] }), nil, "nil when nothing done-ish")
+  eq(model.pick_done_transition(nil), nil, "nil transitions tolerated")
+
+  local t, d = model.split_create_input("my title\n---\nbody line\nmore")
+  eq(t, "my title", "title above ---")
+  eq(d, "body line\nmore", "description below ---")
+  t, d = model.split_create_input("just a title")
+  eq(t, "just a title", "title only, no ---")
+  eq(d, nil, "no description without body")
+  t, d = model.split_create_input("title\nrest without marker")
+  eq(t, "title", "first line is title without ---")
+  eq(d, "rest without marker", "rest becomes description")
+end
+
 -- ---- fetch_all truncation flag ----
 do
   local api = require("jira_tui.api")
