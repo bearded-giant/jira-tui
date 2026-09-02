@@ -3,6 +3,7 @@ local render = require("jira_tui.render")
 local ui = require("jira_tui.ui")
 local ansi = require("jira_tui.ansi")
 local api = require("jira_tui.api")
+local config = require("jira_tui.config")
 local model = require("jira_tui.model")
 local version = require("jira_tui.version")
 
@@ -10,7 +11,9 @@ local M = {}
 local C = ansi.color
 
 local function sort_roots(roots, col, dir)
-  local field = ({ time = "time_spent", points = "story_points" })[col] or col
+  -- age is derived from created: same key, inverted order (older = bigger age)
+  local field = col == "age" and "created" or col
+  if col == "age" then dir = dir == "asc" and "desc" or "asc" end
   table.sort(roots, function(a, b)
     local va, vb = a[field], b[field]
     if va == vb then return false end
@@ -52,7 +55,13 @@ function M.run(opts)
     if st.flat[st.cursor] and st.flat[st.cursor].spacer then st.cursor = step(st.cursor, -1) end
   end
 
-  local function rebuild()
+  local function cur_node()
+    local e = st.flat[st.cursor]
+    return e and not e.spacer and e.node or nil
+  end
+
+  -- rebuild tree from st.raw. keep_key: re-seat the cursor on that issue if it is still shown.
+  local function rebuild(keep_key)
     local issues = {}
     for _, iss in ipairs(st.raw) do
       if not (st.hide_resolved and iss.status_category == "Done") then issues[#issues + 1] = iss end
@@ -64,24 +73,27 @@ function M.run(opts)
       if n.children and #n.children > 0 then n.expanded = true end
     end
     reflatten()
+    if keep_key then
+      for i, e in ipairs(st.flat) do
+        if e.node and e.node.key == keep_key then st.cursor = i; return true end
+      end
+    end
+    return false
   end
 
   local function load_view(view, filter)
-    st.loading = "loading " .. view:gsub("^JQL:.*", "JQL") .. "…"
+    local keep = view == st.view and cur_node() or nil
+    local old_scroll = st.scroll
+    st.loading = "loading " .. render.view_label(view) .. "…"
     if draw then draw() end
-    local issues, err = opts.load(view, filter, st.project)
+    local issues, err, truncated = opts.load(view, filter, st.project)
     st.loading = nil
     if err then st.message = err; return false end
-    st.view, st.filter, st.raw = view, filter, issues or {}
+    st.view, st.filter, st.raw, st.truncated = view, filter, issues or {}, truncated
     st.cursor, st.scroll, st.message = 1, 0, nil
-    rebuild()
+    if rebuild(keep and keep.key) then st.scroll = old_scroll end -- draw() clamps if it no longer fits
     if persist then persist.remember(view, st.project) end
     return true
-  end
-
-  local function cur_node()
-    local e = st.flat[st.cursor]
-    return e and not e.spacer and e.node or nil
   end
 
   -- diff renderer: build every board row, emit only the rows that changed.
@@ -99,22 +111,21 @@ function M.run(opts)
     local left = math.max(1, math.floor((cols - bw) / 2))
     local iw = bw - 2
     local sky = ansi.fgtext("│", C.sky)
-    local function interior(content) return sky .. ansi.padline(content, iw) .. sky end
+    local function interior(content) return sky .. ansi.fitline(content, iw) .. sky end
 
     local frame = {} -- frame[r] = full row string (relative row 0..bh-1)
-    local module = st.view:gsub("^JQL:.*", "JQL")
+    local tab = st.help and "Help" or render.view_label(st.view)
+    local module = tab
     local proj = st.project
       or (st.view == "My Issues" and #st.my_projects > 0 and table.concat(st.my_projects, ",") or nil)
       or "all"
-    local title = module .. "   - Project: " .. proj .. "   (" .. st.count .. ")"
-    local t = " " .. title .. " "
-    frame[0] = ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
-      .. ansi.fgtext(string.rep("─", math.max(0, bw - 3 - ansi.width(t))) .. "╮", C.sky)
+    local title = module .. "   - Project: " .. proj .. "   (" .. st.count .. (st.truncated and "+" or "") .. ")"
+    frame[0] = render.box_top(bw, title)
     frame[1] = interior("")
-    frame[2] = interior(render.tab_bar(st.view, st.hidden, iw))
+    frame[2] = interior(render.tab_bar(tab, st.hidden, iw))
     frame[3] = interior("")
 
-    if st.view == "Help" then
+    if st.help then
       local hl = ui.help_lines(iw)
       for r = 4, bh - 3 do frame[r] = interior(hl[r - 3] or "") end
     else
@@ -129,11 +140,14 @@ function M.run(opts)
         frame[body_top + i - 1] = interior((e and not e.spacer)
           and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor, e.last) or "")
       end
+      if #st.flat == 0 and not st.loading then
+        frame[body_top + 1] = interior(ansi.fgtext("     (no issues)", C.overlay, ansi.ITALIC))
+      end
     end
 
     frame[bh - 2] = interior(st.message
-      and ansi.bgtext("  " .. ansi.truncate(st.message, bw - 6) .. " ", C.base, C.red, ansi.BOLD)
-      or render.hint_line(st.view, st.filter))
+      and ansi.bgtext("  " .. ansi.truncate(st.message, bw - 6) .. " ", C.base, st.message_ok and C.green or C.red, ansi.BOLD)
+      or render.hint_line(st.view, st.filter, iw))
 
     local vtxt = " v" .. version .. " "
     local ltxt = st.loading and (" ● " .. st.loading .. " ") or ""
@@ -170,7 +184,7 @@ function M.run(opts)
 
   local function run_jql(q)
     if not q or q == "" then return end
-    if load_view("JQL:" .. q) and persist then persist.add_jql(q) end
+    if load_view(render.jql_view(q)) and persist then persist.add_jql(q) end
   end
 
   local NEWQ = "＋ New query…"
@@ -187,8 +201,52 @@ function M.run(opts)
 
   local function open_browser(n)
     if not n then return end
-    local url = require("jira_tui.config").options.jira.base .. "/browse/" .. n.key
+    local url = config.options.jira.base .. "/browse/" .. n.key
     os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", url, url))
+  end
+
+  local function show_detail(n, mode)
+    if not n then return end
+    st.message = "loading " .. n.key .. "…"; draw()
+    local issue, err = api.get_issue(n.key)
+    st.message = nil
+    if err or type(issue) ~= "table" or type(issue.fields) ~= "table" then
+      local jira_err = type(issue) == "table" and type(issue.errorMessages) == "table"
+        and table.concat(issue.errorMessages, "; ")
+      st.message = n.key .. ": " .. (err or jira_err or "unexpected response")
+      return
+    end
+    draw() -- clear the "loading" footer before the popup covers the board
+    local project = type(issue.fields.project) == "table" and issue.fields.project.key or n.key:match("^(.-)%-")
+    ui.detail(n.key .. "  " .. (n.summary or ""), render.detail_text(issue, config.get_project_config(project), mode))
+  end
+
+  local function toggle_expand(n)
+    if n and n.children and #n.children > 0 then n.expanded = not n.expanded; reflatten(); return true end
+    return false
+  end
+
+  local function change_status(n)
+    if not n then return end
+    st.message = "loading transitions for " .. n.key .. "…"; draw()
+    local trs, terr = api.get_transitions(n.key)
+    st.message = nil
+    if terr then st.message = n.key .. ": " .. terr; return end
+    if type(trs) ~= "table" or #trs == 0 then st.message = n.key .. ": no transitions available"; return end
+    draw()
+    local choice = ui.select("Status: " .. n.key .. "  (" .. (n.status or "?") .. ")", trs, {
+      format = function(t)
+        local to = type(t.to) == "table" and t.to.name or nil
+        return (to and to ~= t.name) and (t.name .. "  →  " .. to) or t.name
+      end,
+    })
+    if not choice then return end
+    st.message = "moving " .. n.key .. "…"; draw()
+    local _, xerr = api.transition_issue(n.key, choice.id)
+    if xerr then st.message = n.key .. ": " .. xerr; return end
+    load_view(st.view, st.filter)
+    st.message = n.key .. " → " .. (type(choice.to) == "table" and choice.to.name or choice.name)
+    st.message_ok = true
   end
 
   local interactive = term.isatty()
@@ -206,15 +264,32 @@ function M.run(opts)
         if r ~= st.rows or c ~= st.cols then draw() end
       else
       local n = cur_node()
+      st.message_ok = false
 
-      if k == "q" or k == "esc" then break
+      -- help is an overlay: only quit/close and tab keys get through, so data keys
+      -- (r, x, /, ...) can't fire loaders or move the cursor while it's up
+      local swallowed = false
+      if st.help then
+        swallowed = true
+        if k == "ctrl-c" then break
+        elseif k == "q" or k == "esc" or k == "H" then st.help = false
+        elseif ({ M = 1, S = 1, B = 1, J = 1, left = 1, right = 1 })[k] then st.help = false; swallowed = false
+        end
+      end
+
+      if swallowed then -- redraw only
+      elseif k == "q" or k == "esc" or k == "ctrl-c" then break
       elseif k == "j" or k == "down" then st.cursor = step(st.cursor, 1)
       elseif k == "k" or k == "up" then st.cursor = step(st.cursor, -1)
       elseif k == "wheeldown" then for _ = 1, 3 do st.cursor = step(st.cursor, 1) end
       elseif k == "wheelup" then for _ = 1, 3 do st.cursor = step(st.cursor, -1) end
       elseif k == "G" then st.cursor = step(#st.flat + 1, -1)
-      elseif k == "enter" or k == " " or k == "tab" then
-        if n and n.children and #n.children > 0 then n.expanded = not n.expanded; reflatten() end
+      elseif k == " " or k == "tab" or k == "o" then toggle_expand(n)
+      elseif k == "ctrl-d" or k == "pgdn" then
+        for _ = 1, math.max(1, math.floor((st.rows - 8) / 2)) do st.cursor = step(st.cursor, 1) end
+      elseif k == "ctrl-u" or k == "pgup" then
+        for _ = 1, math.max(1, math.floor((st.rows - 8) / 2)) do st.cursor = step(st.cursor, -1) end
+      elseif k == "enter" then if not toggle_expand(n) then show_detail(n) end
       elseif k == "b" then open_browser(n)
       elseif k == "t" then
         local any = false
@@ -227,62 +302,66 @@ function M.run(opts)
         local p = ui.input("Project key", { value = st.project or "", width = 40 })
         if p and p ~= "" then st.project = p:upper(); load_view("Active Sprint", nil) end
       elseif k == "J" then pick_jql()
-      elseif k == "H" then st.view = "Help"; st.message = nil
+      elseif k == "H" then st.help = true; st.message = nil
       elseif k == "/" then
         local f = ui.input("Filter (summary ~)", { value = st.filter or "", width = 50 })
-        if f ~= nil then load_view(st.view == "Help" and "My Issues" or st.view, f ~= "" and f or nil) end
+        if f ~= nil then load_view(st.view, f ~= "" and f or nil) end
       elseif k == "bs" then if st.filter then load_view(st.view, nil) end
       elseif k == "x" then
         st.hide_resolved = not st.hide_resolved
         if persist then persist.data.hide_resolved = st.hide_resolved; persist.save() end
-        rebuild()
-      elseif k == "K" or k == "m" then
-        if n then
-          st.message = "loading " .. n.key .. "…"; draw()
-          local issue = api.get_issue(n.key)
-          local md = (type(issue) == "table" and issue.fields)
-            and model.adf_to_markdown(issue.fields.description) or ""
-          if md == "" then md = "(no description)" end
-          st.message = nil
-          ui.detail(n.key .. "  " .. (n.summary or ""), md)
-        end
+        rebuild(n and n.key)
+      elseif k == "K" then show_detail(n, "fields")
+      elseif k == "m" then show_detail(n, "markdown")
       elseif k == "y" then
         if n then
-          os.execute(string.format("printf %%s %q | pbcopy 2>/dev/null", n.key))
-          st.message = "copied " .. n.key
+          local copied = false
+          for _, tool in ipairs({ "pbcopy", "xclip -selection clipboard", "wl-copy" }) do
+            local bin = tool:match("^%S+")
+            local ok = os.execute("command -v " .. bin .. " >/dev/null 2>&1")
+            if ok == true or ok == 0 then
+              ok = os.execute(string.format("printf %%s %q | %s 2>/dev/null", n.key, tool))
+              if ok == true or ok == 0 then copied = true; break end
+            end
+          end
+          st.message = copied and ("copied " .. n.key)
+            or "copy failed: no clipboard tool (pbcopy / xclip / wl-copy)"
+          st.message_ok = copied
         end
       elseif k == "r" then load_view(st.view, st.filter)
       elseif k == "left" or k == "right" then
-        local order = {}
-        for _, name in ipairs({ "My Issues", "JQL", "Active Sprint", "Backlog", "Help" }) do
-          if name == "My Issues" or not st.hidden[name] then order[#order + 1] = name end
+        local order = {} -- cycle order = render.TABS, minus hidden
+        for _, tabdef in ipairs(render.TABS) do
+          if tabdef.name == "My Issues" or not st.hidden[tabdef.name] then order[#order + 1] = tabdef.name end
         end
+        local cur = st.help and "Help" or render.view_label(st.view)
         local idx = 1
-        for i, v in ipairs(order) do if v == st.view then idx = i end end
+        for i, v in ipairs(order) do if v == cur then idx = i end end
         idx = ((idx - 1 + (k == "right" and 1 or -1)) % #order) + 1
         local nv = order[idx]
         if nv == "Active Sprint" or nv == "Backlog" then
           if ensure_project() then load_view(nv, nil) end
         elseif nv == "JQL" then pick_jql()
-        elseif nv == "Help" then st.view = "Help"; st.message = nil
+        elseif nv == "Help" then st.help = true; st.message = nil
         else load_view(nv, nil) end
       elseif k == "g" then
         local nk; repeat nk = term.read_key() until nk
         if nk == "g" then st.cursor = 1
+        elseif nk == "x" then open_browser(n)
         elseif nk == "j" then run_jql(ui.input("New JQL", { multiline = true }))
         elseif nk == "s" then
-          local cols = { { f = "key", l = "Key" }, { f = "summary", l = "Title" },
-            { f = "assignee", l = "Assignee" }, { f = "time", l = "Time" }, { f = "status", l = "Status" } }
-          local choice = ui.select("Sort by", cols, { format = function(c) return c.l end })
+          -- menu is the rendered column table, so menu/columns/indicator can't drift
+          local choice = ui.select("Sort by", render.COLUMNS, { format = function(c) return c.l end })
           if choice then
             if st.sort_col ~= choice.f then st.sort_col, st.sort_dir = choice.f, "asc"
             elseif st.sort_dir == "asc" then st.sort_dir = "desc"
             else st.sort_col, st.sort_dir = nil, nil end
-            rebuild()
+            rebuild(n and n.key)
           end
         end
-      elseif k == "s" or k == "c" or k == "d" or k == "e" or k == "a" then
-        st.message = "edit / create / status / assign not implemented yet"
+      elseif k == "s" then change_status(n)
+      elseif k == "c" or k == "d" or k == "e" or k == "a" then
+        st.message = "edit / create / assign not implemented yet"
       end
       draw()
       end

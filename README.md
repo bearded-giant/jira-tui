@@ -69,7 +69,7 @@ jira-tui REF --jql "status = 'In Progress'"
 jira-tui --help           # flags + keys
 ```
 
-A project key is only needed for the sprint and backlog views. With no arguments it opens My Issues, and you move around from there, no project is ever forced on startup.
+A project key is only needed for the sprint and backlog views. With no arguments it opens My Issues, and you move around from there, no project is ever forced on startup. Inside the TUI, `S` and `B` reuse the last project you used (from an argument or the `p` prompt), so you rarely need to retype it.
 
 ### Keys
 
@@ -77,7 +77,9 @@ A project key is only needed for the sprint and backlog views. With no arguments
 |-----|--------|
 | `j` / `k` (or arrows, mouse wheel) | move cursor |
 | `gg` / `G` | top / bottom |
-| `enter` / `space` / `tab` | expand / collapse node |
+| `enter` | open issue detail (expands the node if it has subtasks) |
+| `space` / `tab` / `o` | expand / collapse node |
+| `ctrl-d` / `ctrl-u` | half page down / up |
 | `t` | toggle all |
 | `M` | My Issues (assigned to you) |
 | `S` / `B` | Active Sprint / Backlog |
@@ -87,7 +89,8 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `/` | filter by summary · `BS` clear |
 | `x` | show / hide resolved |
 | `K` / `m` | issue detail / markdown |
-| `b` | open issue in browser |
+| `s` | change issue status |
+| `b` / `gx` | open issue in browser |
 | `y` | copy issue key |
 | `r` | refresh |
 | `q` / `Esc` | quit |

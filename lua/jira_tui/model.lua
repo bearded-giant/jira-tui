@@ -75,11 +75,27 @@ local html_entities = {
   ["&quot;"] = '"', ["&#39;"] = "'", ["&apos;"] = "'", ["&nbsp;"] = " ",
 }
 
-local function decode_entities(str)
-  return (str:gsub("&%w+;", html_entities):gsub("&#(%d+);", function(n)
-    return string.char(tonumber(n) or 0)
-  end))
+-- luajit has no utf8.char; string.char throws above 255 (smart quotes are &#8217;)
+local function utf8_char(n)
+  if n < 0x80 then return string.char(n) end
+  if n < 0x800 then return string.char(0xC0 + math.floor(n / 0x40), 0x80 + n % 0x40) end
+  if n < 0x10000 then
+    return string.char(0xE0 + math.floor(n / 0x1000), 0x80 + math.floor(n / 0x40) % 0x40, 0x80 + n % 0x40)
+  end
+  if n < 0x110000 then
+    return string.char(0xF0 + math.floor(n / 0x40000), 0x80 + math.floor(n / 0x1000) % 0x40,
+      0x80 + math.floor(n / 0x40) % 0x40, 0x80 + n % 0x40)
+  end
+  return ""
 end
+M.utf8_char = utf8_char
+
+local function decode_entities(str)
+  return (str:gsub("&%w+;", html_entities)
+    :gsub("&#[xX](%x+);", function(h) return utf8_char(tonumber(h, 16)) end)
+    :gsub("&#(%d+);", function(n) return utf8_char(tonumber(n)) end))
+end
+M.decode_entities = decode_entities
 
 local function parse_adf(node)
   if not node then return "" end
@@ -91,17 +107,36 @@ local function parse_adf(node)
         if mark.type == "em" then text = "_" .. text .. "_" end
         if mark.type == "code" then text = "`" .. text .. "`" end
         if mark.type == "strike" then text = "~~" .. text .. "~~" end
-        if mark.type == "link" then text = string.format("[%s](%s)", text, mark.attrs.href) end
+        if mark.type == "link" then
+          local href = mark.attrs and mark.attrs.href
+          if href then text = string.format("[%s](%s)", text, href) end
+        end
       end
     end
     return text
   elseif node.type == "hardBreak" then
     return "\n"
+  elseif node.type == "mention" or node.type == "emoji" or node.type == "status" then
+    local a = node.attrs or {}
+    return a.text or a.shortName or a.name or ""
+  elseif node.type == "inlineCard" or node.type == "embedCard" then
+    local a = node.attrs or {}
+    return a.url or ""
+  elseif node.type == "media" then
+    local a = node.attrs or {}
+    return "[media" .. (a.alt and (": " .. a.alt) or "") .. "]"
   elseif node.content then
     local parts = {}
     for _, child in ipairs(node.content) do parts[#parts + 1] = parse_adf(child) end
+    if node.type == "tableRow" then
+      local cells = {}
+      for _, cell in ipairs(parts) do cells[#cells + 1] = (cell:gsub("%s+$", "")) end
+      return table.concat(cells, " | ") .. "\n"
+    end
     local joined = table.concat(parts, "")
-    if node.type == "paragraph" then
+    if node.type == "table" then
+      return joined .. "\n"
+    elseif node.type == "paragraph" then
       return joined .. "\n\n"
     elseif node.type == "heading" then
       local level = node.attrs and node.attrs.level or 1

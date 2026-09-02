@@ -1,5 +1,6 @@
 local term = require("jira_tui.term")
 local ansi = require("jira_tui.ansi")
+local render = require("jira_tui.render")
 
 local M = {}
 local C = ansi.color
@@ -17,16 +18,7 @@ end
 -- rounded box, bright border + title. fills interior blank.
 local function draw_box(top, left, w, h, title)
   local function row(r, s) term.moveto(r, left); term.out(s) end
-  local tline
-  if title then
-    local t = " " .. title .. " "
-    local rest = math.max(0, w - 3 - ansi.width(t))
-    tline = ansi.fgtext("╭─", C.sky) .. ansi.fgtext(t, C.text, ansi.BOLD)
-      .. ansi.fgtext(string.rep("─", rest) .. "╮", C.sky)
-  else
-    tline = ansi.fgtext("╭" .. string.rep("─", w - 2) .. "╮", C.sky)
-  end
-  row(top, tline)
+  row(top, render.box_top(w, title))
   local side = ansi.fgtext("│", C.sky)
   for r = 1, h - 2 do
     row(top + r, side .. string.rep(" ", w - 2) .. side)
@@ -71,11 +63,15 @@ function M.input(title, opts)
     term.out(ansi.fgtext(" " .. hint .. " ", C.overlay))
 
     local k; repeat k = term.read_key() until k
-    if k == "esc" then return nil end
+    if k == "esc" or k == "ctrl-c" then return nil end
     if opts.multiline and k == "ctrl-s" then return trim(buf) end
-    if not opts.multiline and k == "enter" then return buf end
+    if not opts.multiline and k == "enter" then return trim(buf) end
     if k == "enter" and opts.multiline then buf = buf .. "\n"
-    elseif k == "bs" then buf = buf:sub(1, -2)
+    elseif k == "bs" then
+      -- drop one codepoint, not one byte (multibyte utf-8 would corrupt)
+      local i = #buf
+      while i > 1 and buf:byte(i) >= 0x80 and buf:byte(i) < 0xC0 do i = i - 1 end
+      buf = buf:sub(1, i - 1)
     elseif k == "tab" then buf = buf .. "  "
     elseif type(k) == "string" and #k == 1 and k:byte() >= 32 then buf = buf .. k end
   end
@@ -116,7 +112,7 @@ function M.select(title, items, opts)
     term.out(ansi.fgtext(string.format(" %d/%d   j/k move   Enter select   Esc cancel ", sel, #items), C.overlay))
 
     local k; repeat k = term.read_key() until k
-    if k == "esc" or k == "q" then return nil end
+    if k == "esc" or k == "q" or k == "ctrl-c" then return nil end
     if (k == "j" or k == "down" or k == "wheeldown") and sel < #items then sel = sel + 1 end
     if (k == "k" or k == "up" or k == "wheelup") and sel > 1 then sel = sel - 1 end
     if k == "enter" and items[sel] then return items[sel], sel end
@@ -133,7 +129,7 @@ function M.detail(title, text)
   local body = h - 2
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
-    lines[#lines + 1] = ansi.width(line) > w - 4 and ansi.truncate(line, w - 4) or line
+    for _, wl in ipairs(ansi.wrap(line, w - 4)) do lines[#lines + 1] = wl end
   end
   local scroll = 0
   while true do
@@ -145,7 +141,7 @@ function M.detail(title, text)
     term.moveto(top + h - 1, left + 2)
     term.out(ansi.fgtext(" j/k scroll   q back ", C.overlay))
     local k; repeat k = term.read_key() until k
-    if k == "q" or k == "esc" then return end
+    if k == "q" or k == "esc" or k == "ctrl-c" then return end
     if (k == "j" or k == "down" or k == "wheeldown") and scroll < #lines - body then scroll = scroll + 1 end
     if (k == "k" or k == "up" or k == "wheelup") and scroll > 0 then scroll = scroll - 1 end
     if k == "g" then scroll = 0 end
@@ -161,15 +157,16 @@ local HELP = {
   } },
   { "JQL", { { "J", "Pick from history / new" }, { "gj", "New query" } } },
   { "Navigation", {
-    { "j / k", "Move (mouse wheel too)" }, { "⏎ / Space / Tab", "Expand / collapse" },
+    { "j / k", "Move (mouse wheel too)" }, { "⏎", "Open issue (expand if it has subtasks)" },
+    { "Space / Tab / o", "Expand / collapse" }, { "Ctrl-d / Ctrl-u", "Half page down / up" },
     { "t", "Toggle all" }, { "/", "Filter by summary" }, { "BS", "Clear filter" },
     { "gg / G", "Top / bottom" }, { "x", "Show/hide resolved" },
   } },
   { "Issue", {
-    { "K / m", "Details / markdown" }, { "b", "Open in browser" },
+    { "K / m", "Details / markdown" }, { "s", "Change status" }, { "b / gx", "Open in browser" },
     { "y", "Copy key" }, { "gs", "Sort column" },
   } },
-  { "General", { { "r", "Refresh" }, { "H", "Help" }, { "q / Esc", "Quit" } } },
+  { "General", { { "r", "Refresh" }, { "H", "Help (Esc / q closes it)" }, { "q / Esc", "Quit" } } },
 }
 
 function M.help_lines(width)
