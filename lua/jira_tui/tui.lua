@@ -33,7 +33,7 @@ function M.run(opts)
     roots = {}, flat = {}, cursor = 1, scroll = 0, count = 0,
     sort_col = nil, sort_dir = nil, raw = {}, message = nil,
     hide_resolved = persist and persist.data.hide_resolved,
-    rows = 24, cols = 80, detail_cache = {},
+    rows = 24, cols = 80, detail_cache = {}, cache = {},
   }
   if st.hide_resolved == nil then st.hide_resolved = true end
   st.my_projects = opts.my_projects or {}
@@ -89,15 +89,25 @@ function M.run(opts)
   end
 
   -- filter is client-side (rebuild); a refresh of the same view keeps it, a view switch clears it
-  local function load_view(view, filter)
+  -- sprint/backlog share a view id across projects, so the project is part of the key
+  local function cache_key(view) return view .. "|" .. (st.project or "") end
+
+  -- st.raw is the cache entry's table, so row patches land in the cache too
+  local function load_view(view, filter, force)
     local keep = view == st.view and cur_node() or nil
     local old_scroll = st.scroll
-    st.loading = "loading " .. render.view_label(view) .. "…"
-    if draw then draw() end
-    local issues, err, truncated = opts.load(view, nil, st.project)
-    st.loading = nil
-    if err then st.message = err; return false, err end
-    st.view, st.filter, st.raw, st.truncated = view, filter, issues or {}, truncated
+    local entry = st.cache[cache_key(view)]
+    st.cached = not force and model.cache_fresh(entry, opts.cache_ttl, os.time()) and entry or nil
+    if not st.cached then
+      st.loading = "loading " .. render.view_label(view) .. "…"
+      if draw then draw() end
+      local issues, err, truncated = opts.load(view, nil, st.project)
+      st.loading = nil
+      if err then st.message = err; return false, err end
+      entry = { raw = issues or {}, truncated = truncated, at = os.time() }
+      st.cache[cache_key(view)] = entry
+    end
+    st.view, st.filter, st.raw, st.truncated = view, filter, entry.raw, entry.truncated
     st.cursor, st.scroll, st.message = 1, 0, nil
     if rebuild(keep and keep.key) then st.scroll = old_scroll end -- draw() clamps if it no longer fits
     if persist then persist.remember(view, st.project) end
@@ -113,6 +123,9 @@ function M.run(opts)
       return false
     end
     model.upsert_row(st.raw, row)
+    for _, c in pairs(st.cache) do
+      if c.raw ~= st.raw then model.replace_row(c.raw, row) end
+    end
     rebuild(key)
     st.message, st.message_ok = done_msg, true
     return true
@@ -172,7 +185,8 @@ function M.run(opts)
       or render.hint_line(st.view, st.filter, iw))
 
     local vtxt = " v" .. version .. " "
-    local ltxt = st.loading and (" ● " .. st.loading .. " ") or ""
+    local ltxt = st.loading and (" ● " .. st.loading .. " ")
+      or st.cached and (" cached " .. math.floor((os.time() - st.cached.at) / 60) .. "m ") or ""
     local ptxt = ""
     if not st.help and #st.flat > 0 then
       local cur, tot = 0, 0
@@ -523,7 +537,7 @@ function M.run(opts)
         if n then yank(config.options.jira.base .. "/browse/" .. n.key, n.key .. " url") end
       elseif k == "a" then assign_picker(n)
       elseif k == "A" then assign_me(n)
-      elseif k == "r" then st.detail_cache = {}; load_view(st.view, st.filter)
+      elseif k == "r" then st.detail_cache = {}; load_view(st.view, st.filter, true)
       elseif k == "left" or k == "right" then
         local order = {}
         for _, tabdef in ipairs(st.tabs) do order[#order + 1] = tabdef.name end

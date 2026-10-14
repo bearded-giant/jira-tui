@@ -657,7 +657,7 @@ local TUI_FIXTURE = {
 -- chord left waiting fails loudly instead of spinning forever.
 -- opts: issues (fixture rows), view, project, api (stub fns for jira_tui.api), load (fn override).
 -- opts.sprint: stub fns for jira_tui.sprint. opts.state: persist fake (fake_state()).
--- opts.queries / opts.hidden_tabs: as passed by init.
+-- opts.queries / opts.hidden_tabs / opts.cache_ttl: as passed by init (cache off unless set).
 -- returns { ok, err, out = captured output, loads = loader calls, api / sprint = call logs }
 local function run_tui(keys, opts)
   opts = opts or {}
@@ -698,6 +698,7 @@ local function run_tui(keys, opts)
     my_projects = {},
     hidden_tabs = opts.hidden_tabs or {},
     queries = opts.queries,
+    cache_ttl = opts.cache_ttl,
     state = opts.state,
   })
   io.stderr = o_stderr
@@ -918,6 +919,60 @@ do
   local seen = {}
   for _, l in ipairs(r.loads) do seen[#seen + 1] = l.view end
   eq(table.concat(seen, ","), "My Issues,Bugs,Review,Bugs", "digits jump (2 unbound), work over help, right cycles to next query")
+end
+
+-- ---- per-view cache ----
+do
+  eq(model.cache_fresh(nil, 300, 100), false, "cache_fresh: no entry")
+  eq(model.cache_fresh({ at = 100 }, 300, 399), true, "cache_fresh: inside ttl")
+  eq(model.cache_fresh({ at = 100 }, 300, 400), false, "cache_fresh: expired at ttl")
+  eq(model.cache_fresh({ at = 100 }, 0, 100), false, "cache_fresh: ttl 0 disables")
+  eq(model.cache_fresh({ at = 100 }, nil, 100), false, "cache_fresh: nil ttl disables")
+  local raw = { { key = "A-1" } }
+  eq(model.replace_row(raw, { key = "A-2" }), nil, "replace_row: absent -> nil, no append")
+  eq(#raw, 1, "replace_row: length kept")
+
+  local stt = { data = { jql_history = { "project = X" } }, remember = function() end, save = function() end,
+    add_jql = function() end }
+  local r = run_tui(keyseq("J", "j", "enter", "M"), { cache_ttl = 300, state = stt })
+  ok(r.ok, "cache flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 2, "cache: M -> J query -> M = 2 loader calls")
+  ok(r.out:find("cached 0m", 1, true), "cache: footer marks cached view")
+  r = run_tui(keyseq("J", "j", "enter", "M", "r"), { cache_ttl = 300, state = stt })
+  eq(#r.loads, 3, "cache: r forces a fetch")
+  r = run_tui(keyseq("J", "j", "enter", "M"), { state = stt })
+  eq(#r.loads, 3, "cache: off without cache_ttl")
+
+  -- sprint view for another project is a different cache entry
+  r = run_tui(keyseq("S", "p", "OPS", "enter"), { cache_ttl = 300, view = "Active Sprint" })
+  eq(#r.loads, 2, "cache: project switch refetches the same view id")
+
+  -- a row patch reaches other cached views holding that key. PE-1 sits on row 1 in the
+  -- query view and row 2 in My Issues, so the second paint is a fresh row.
+  local function last_row_with(out, needle)
+    local pos, from = nil, 1
+    while true do
+      local i = out:find(needle, from, true)
+      if not i then break end
+      pos, from = i, i + 1
+    end
+    if not pos then return "" end
+    local nxt = out:find("\27%[%d+;%d+H", pos)
+    return out:sub(pos, nxt and nxt - 1 or -1)
+  end
+  r = run_tui(keyseq("J", "j", "enter", "A", "M"), { cache_ttl = 300, state = stt,
+    load = function(view)
+      if view == "My Issues" then return { TUI_FIXTURE[4], TUI_FIXTURE[1] }, nil end
+      return { TUI_FIXTURE[1] }, nil
+    end,
+    api = { myself = function() return { accountId = "me1", displayName = "Me" } end,
+      assign_issue = function() return true end },
+    sprint = { get_issue_row = function(key)
+      return { key = key, summary = "alpha root", status = "Patched", status_category = "In Progress" } end },
+  })
+  ok(r.ok, "cache patch flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 2, "cache patch: back to M served from cache")
+  ok(last_row_with(r.out, "alpha root"):find("Patched", 1, true), "cache patch: cached My Issues shows patched row")
 end
 
 -- ---- row patch after mutations ----

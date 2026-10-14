@@ -41,8 +41,12 @@ return {
     { name = "Review", jql = "status = 'In Review' AND project = ABC" },
     { name = "Bugs", jql = "type = Bug AND resolution IS EMPTY", key = "5" },
   },
+  -- seconds a fetched view is reused when you switch back to its tab (0 = always refetch)
+  cache_ttl = 300,
 }
 ```
+
+Switching tabs reuses rows fetched within the last `cache_ttl` seconds, so flipping between views is instant; the footer says `cached Nm` when you're looking at cached rows, and `r` always refetches. Your own edits (status, assign, edit, close) patch the affected row in every cached view that already shows it; a new issue only lands in the view you created it from.
 
 Each saved query becomes a tab you can jump to with a digit. `key` is optional and defaults to the query's position in the list, so the first one is `1`, the second `2`, and so on up to `9`. Names have to be unique and can't reuse a built-in tab name (My Issues, JQL, Active Sprint, Backlog, Help).
 
@@ -107,7 +111,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `b` / `gx` | open issue in browser |
 | `y` / `Y` | copy issue key / url |
 | `gb` | copy a git branch name (`pe-1472-add-rate-limit`) |
-| `r` | refresh (keeps cursor and filter) |
+| `r` | refresh, skipping the view cache (keeps cursor and filter) |
 | `?` / `H` | help |
 | `q` | back: closes detail / help / pickers, never the app |
 | `Esc` | quit |

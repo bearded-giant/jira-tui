@@ -24,13 +24,24 @@ function M.build_issue_tree(issues)
   return roots
 end
 
--- replace the row with row.key in place, else append. returns its index.
-function M.upsert_row(raw, row)
+-- replace the row with row.key in place; index or nil when absent
+function M.replace_row(raw, row)
   for i, r in ipairs(raw) do
     if r.key == row.key then raw[i] = row; return i end
   end
+end
+
+-- replace the row with row.key in place, else append. returns its index.
+function M.upsert_row(raw, row)
+  local i = M.replace_row(raw, row)
+  if i then return i end
   raw[#raw + 1] = row
   return #raw
+end
+
+-- ttl seconds; 0 / nil disables
+function M.cache_fresh(entry, ttl, now)
+  return entry ~= nil and (ttl or 0) > 0 and now - entry.at < ttl
 end
 
 -- embedded fields.comment is oldest first and capped (100). returns up to n newest first,

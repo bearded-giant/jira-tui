@@ -11,6 +11,7 @@ M.options = {
   my_issues_projects = {},
   hidden_tabs = {}, -- e.g. { "Active Sprint", "Backlog" } to declutter
   queries = {},
+  cache_ttl = 300, -- seconds a fetched view is reused on tab switch; 0 disables
 }
 
 local BUILTIN_VIEWS = { ["My Issues"] = true, JQL = true, ["Active Sprint"] = true, Backlog = true, Help = true }
@@ -58,6 +59,7 @@ function M.load()
       local qs, qerr = M.parse_queries(user.queries)
       if not qs then return nil, path .. ": " .. qerr end
       M.options.queries = qs
+      M.options.cache_ttl = tonumber(user.cache_ttl) or M.options.cache_ttl
     end
   end
 

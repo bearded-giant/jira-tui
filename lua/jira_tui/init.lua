@@ -82,6 +82,7 @@ function M.main(argv)
     my_projects = config.options.my_issues_projects,
     hidden_tabs = config.options.hidden_tabs,
     queries = config.options.queries,
+    cache_ttl = config.options.cache_ttl,
   })
   return 0
 end
