@@ -6,11 +6,15 @@ local tui = require("jira_tui.tui")
 
 local M = {}
 
-local function make_loader(default_project, my_projects)
+function M.make_loader(default_project, my_projects, queries)
+  local saved = {}
+  for _, q in ipairs(queries or {}) do saved[q.name] = q.jql end
   -- project arg (from the in-TUI prompt) wins; falls back to launch default
   return function(view, filter, project)
     project = project or default_project
-    if view == "Backlog" then
+    if saved[view] then
+      return sprint.get_issues_by_jql(project, saved[view], filter)
+    elseif view == "Backlog" then
       return sprint.get_backlog_issues(project, filter)
     elseif view == "My Issues" then
       return sprint.get_my_issues(my_projects, filter)
@@ -36,7 +40,7 @@ config: ]] .. config.config_path() .. [[ (lua table) or env
   JIRA_EMAIL  you@example.com
   JIRA_TOKEN  api token (JIRA_API_TOKEN also accepted)
 
-keys: j/k move  Enter open  / filter  M mine  p project  J jql
+keys: j/k move  Enter open  / filter  M mine  1-9 saved queries  p project  J jql
       K detail  s status  a/A assign  y/Y copy  gb branch  b open
       x hide-resolved  r refresh  q back  Esc quit  ? help
 ]])
@@ -71,12 +75,13 @@ function M.main(argv)
   if not ok then io.stderr:write("jira-tui: " .. err .. "\n"); return 1 end
 
   tui.run({
-    load = make_loader(launch.project, config.options.my_issues_projects),
+    load = M.make_loader(launch.project, config.options.my_issues_projects, config.options.queries),
     project = launch.project,
     initial_view = launch.view,
     state = state,
     my_projects = config.options.my_issues_projects,
     hidden_tabs = config.options.hidden_tabs,
+    queries = config.options.queries,
   })
   return 0
 end

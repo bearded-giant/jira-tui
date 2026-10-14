@@ -235,7 +235,7 @@ do
   local hdr = plain(render.column_header(120))
   ok(hdr:find("Created") and hdr:find("Age") and hdr:find("Status"), "column header has Created/Age/Status")
 
-  local bar = plain(render.tab_bar("My Issues", { ["Active Sprint"] = true, ["Backlog"] = true }, 100))
+  local bar = plain(render.tab_bar("My Issues", render.tabs(nil, { ["Active Sprint"] = true, ["Backlog"] = true }), 100))
   ok(bar:find("My Issues") and bar:find("JQL") and bar:find("Help"), "tab bar has visible tabs")
   ok(not bar:find("Active Sprint") and not bar:find("Backlog"), "hidden tabs dropped")
   ok(bar:find("JQL.*%s%s%s+.*Help"), "Help pushed right of JQL")
@@ -291,8 +291,8 @@ do
   ok(ansi.width(render.box_top(40)) == 40, "box_top exact width without title")
   ok(ansi.width(render.box_top(20, string.rep("long title ", 5))) == 20, "box_top truncates long title")
   local active_jql = "48;2;" .. ansi.color.yellow .. ";1m JQL (J) "
-  ok(render.tab_bar(render.view_label("JQL:project = X"), {}, 100):find(active_jql, 1, true), "JQL tab highlighted for a JQL:<q> view")
-  ok(not render.tab_bar(render.view_label("My Issues"), {}, 100):find(active_jql, 1, true), "JQL tab plain on My Issues")
+  ok(render.tab_bar(render.view_label("JQL:project = X"), render.tabs(), 100):find(active_jql, 1, true), "JQL tab highlighted for a JQL:<q> view")
+  ok(not render.tab_bar(render.view_label("My Issues"), render.tabs(), 100):find(active_jql, 1, true), "JQL tab plain on My Issues")
 
   ok(not plain(render.column_header(76)):find("Created"), "Created dropped at 76 (80-col terminal)")
   ok(plain(render.column_header(100)):find("Created"), "Created shown at 100")
@@ -657,6 +657,7 @@ local TUI_FIXTURE = {
 -- chord left waiting fails loudly instead of spinning forever.
 -- opts: issues (fixture rows), view, project, api (stub fns for jira_tui.api), load (fn override).
 -- opts.sprint: stub fns for jira_tui.sprint. opts.state: persist fake (fake_state()).
+-- opts.queries / opts.hidden_tabs: as passed by init.
 -- returns { ok, err, out = captured output, loads = loader calls, api / sprint = call logs }
 local function run_tui(keys, opts)
   opts = opts or {}
@@ -695,7 +696,8 @@ local function run_tui(keys, opts)
     project = opts.project or "PE",
     initial_view = opts.view or "My Issues",
     my_projects = {},
-    hidden_tabs = {},
+    hidden_tabs = opts.hidden_tabs or {},
+    queries = opts.queries,
     state = opts.state,
   })
   io.stderr = o_stderr
@@ -868,6 +870,54 @@ do
   eq(#r.loads, 3, "history fail: retry from editor")
   eq(r.loads[3].view, "JQL:status = Broken", "history fail: editor prefilled with picked query")
   ok(r.out:find("Edit JQL", 1, true), "history fail: editor opened")
+end
+
+-- ---- saved query tabs ----
+do
+  local config = require("jira_tui.config")
+  local render = require("jira_tui.render")
+  local init = require("jira_tui.init")
+  local function plain(s) return (s:gsub("\27%[[%d;]*m", "")) end
+
+  local qs = assert(config.parse_queries({ { name = "Review", jql = "status = Review" },
+    { name = "Bugs", jql = "type = Bug", key = 5 }, { name = "Mine", jql = "assignee = currentUser()" } }))
+  eq(qs[1].key, "1", "queries: key defaults to position")
+  eq(qs[2].key, "5", "queries: explicit numeric key -> string")
+  eq(qs[3].key, "3", "queries: third gets 3")
+  local bad, berr = config.parse_queries({ { name = "Backlog", jql = "x" } })
+  ok(bad == nil and berr:find("taken"), "queries: built-in name rejected")
+  bad, berr = config.parse_queries({ { name = "A", jql = "x" }, { name = "A", jql = "y" } })
+  ok(bad == nil and berr:find("taken"), "queries: duplicate name rejected")
+  bad = config.parse_queries({ { name = "A", jql = "x" }, { name = "B", jql = "y", key = "1" } })
+  eq(bad, nil, "queries: key collision rejected")
+  bad = config.parse_queries({ { name = "A", jql = "x", key = "0" } })
+  eq(bad, nil, "queries: key must be 1-9")
+  bad = config.parse_queries({ { name = "A" } })
+  eq(bad, nil, "queries: jql required")
+  eq(#assert(config.parse_queries(nil)), 0, "queries: nil -> empty")
+
+  local names = {}
+  for _, t in ipairs(render.tabs(qs, { Backlog = true, Help = true })) do names[#names + 1] = t.name end
+  eq(table.concat(names, ","), "My Issues,Review,Bugs,Mine,JQL,Active Sprint,Help", "tabs: order, hidden dropped, Help kept")
+  local bar = render.tab_bar("Bugs", render.tabs(qs), 140)
+  ok(bar:find("48;2;" .. ansi.color.yellow .. ";1m Bugs (5) ", 1, true), "tabs: active query chip highlighted")
+  ok(plain(bar):find("Review (1)", 1, true), "tabs: query chip shows jump key")
+
+  local log, restore = stub(sprint, { get_issues_by_jql = function() return {} end, get_my_issues = function() return {} end })
+  local load = init.make_loader("PE", {}, qs)
+  load("Bugs", nil, nil)
+  load("My Issues", nil, nil)
+  local jl = calls(log, "get_issues_by_jql")
+  eq(#jl, 1, "loader: query view routed to jql")
+  eq(jl[1] and jl[1][3], "type = Bug", "loader: query jql passed")
+  eq(jl[1] and jl[1][2], "PE", "loader: default project passed")
+  restore()
+
+  local r = run_tui(keyseq("2", "5", "?", "1", "right"), { queries = qs })
+  ok(r.ok, "query tabs flow ok (" .. tostring(r.err) .. ")")
+  local seen = {}
+  for _, l in ipairs(r.loads) do seen[#seen + 1] = l.view end
+  eq(table.concat(seen, ","), "My Issues,Bugs,Review,Bugs", "digits jump (2 unbound), work over help, right cycles to next query")
 end
 
 -- ---- row patch after mutations ----

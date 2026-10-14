@@ -252,7 +252,8 @@ end
 -- help view content (rendered inside the board body by tui, not a modal)
 local HELP = {
   { "Views", {
-    { "M", "My Issues" }, { "S", "Active Sprint" }, { "B", "Backlog" },
+    { "M", "My Issues" }, { "1-9", "Saved query tabs (config queries)" },
+    { "S", "Active Sprint" }, { "B", "Backlog" },
     { "→ / ←", "Cycle tabs" }, { "p", "Set / change project" },
   } },
   { "JQL", { { "J", "Pick from history / new (e edits a past query)" }, { "gj", "New query" } } },

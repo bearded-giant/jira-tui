@@ -39,6 +39,9 @@ function M.run(opts)
   st.my_projects = opts.my_projects or {}
   st.hidden = {}
   for _, name in ipairs(opts.hidden_tabs or {}) do st.hidden[name] = true end
+  st.tabs = render.tabs(opts.queries, st.hidden)
+  st.query_keys = {}
+  for _, q in ipairs(opts.queries or {}) do if q.key then st.query_keys[q.key] = q.name end end
   st.rows, st.cols = term.size()
   local draw -- forward decl (load_view shows a loading footer via draw)
 
@@ -141,7 +144,7 @@ function M.run(opts)
     local title = module .. "   - Project: " .. proj .. "   (" .. st.count .. (st.truncated and "+" or "") .. ")"
     frame[0] = render.box_top(bw, title)
     frame[1] = interior("")
-    frame[2] = interior(render.tab_bar(tab, st.hidden, iw))
+    frame[2] = interior(render.tab_bar(tab, st.tabs, iw))
     frame[3] = interior("")
 
     if st.help then
@@ -470,7 +473,8 @@ function M.run(opts)
         swallowed = true
         if k == "ctrl-c" then break
         elseif k == "q" or k == "esc" or k == "H" or k == "?" then st.help = false
-        elseif ({ M = 1, S = 1, B = 1, J = 1, left = 1, right = 1 })[k] then st.help = false; swallowed = false
+        elseif ({ M = 1, S = 1, B = 1, J = 1, left = 1, right = 1 })[k] or st.query_keys[k] then
+          st.help = false; swallowed = false
         end
       end
 
@@ -494,6 +498,7 @@ function M.run(opts)
         for _, r in ipairs(st.roots) do if r.expanded then any = true end end
         toggle_all(not any); reflatten()
       elseif k == "M" then load_view("My Issues", nil)
+      elseif st.query_keys[k] then load_view(st.query_keys[k], nil)
       elseif k == "S" then if ensure_project() then load_view("Active Sprint", nil) end
       elseif k == "B" then if ensure_project() then load_view("Backlog", nil) end
       elseif k == "p" then
@@ -520,10 +525,8 @@ function M.run(opts)
       elseif k == "A" then assign_me(n)
       elseif k == "r" then st.detail_cache = {}; load_view(st.view, st.filter)
       elseif k == "left" or k == "right" then
-        local order = {} -- cycle order = render.TABS, minus hidden
-        for _, tabdef in ipairs(render.TABS) do
-          if tabdef.name == "My Issues" or not st.hidden[tabdef.name] then order[#order + 1] = tabdef.name end
-        end
+        local order = {}
+        for _, tabdef in ipairs(st.tabs) do order[#order + 1] = tabdef.name end
         local cur = st.help and "Help" or render.view_label(st.view)
         local idx = 1
         for i, v in ipairs(order) do if v == cur then idx = i end end

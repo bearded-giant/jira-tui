@@ -10,7 +10,32 @@ M.options = {
   projects = {},
   my_issues_projects = {},
   hidden_tabs = {}, -- e.g. { "Active Sprint", "Backlog" } to declutter
+  queries = {},
 }
+
+local BUILTIN_VIEWS = { ["My Issues"] = true, JQL = true, ["Active Sprint"] = true, Backlog = true, Help = true }
+
+-- saved query tabs: { name, jql, key? }. key defaults to the 1-based position (1-9).
+-- the name is the view id, so it can't shadow a built-in view or the "JQL:" prefix.
+function M.parse_queries(qs)
+  local out, names, keys = {}, {}, {}
+  for i, q in ipairs(qs or {}) do
+    if type(q) ~= "table" or type(q.name) ~= "string" or q.name == "" or type(q.jql) ~= "string" or q.jql == "" then
+      return nil, "queries[" .. i .. "] needs a name and a jql string"
+    end
+    if BUILTIN_VIEWS[q.name] or q.name:sub(1, 4) == "JQL:" or names[q.name] then
+      return nil, "queries: name '" .. q.name .. "' is already taken"
+    end
+    local key = q.key and tostring(q.key) or (i <= 9 and tostring(i) or nil)
+    if key and (not key:match("^[1-9]$") or keys[key]) then
+      return nil, "queries: '" .. q.name .. "' key must be an unused digit 1-9"
+    end
+    names[q.name] = true
+    if key then keys[key] = true end
+    out[i] = { name = q.name, jql = q.jql, key = key }
+  end
+  return out
+end
 
 function M.config_path()
   local xdg = os.getenv("XDG_CONFIG_HOME")
@@ -30,6 +55,9 @@ function M.load()
       M.options.projects = user.projects or {}
       M.options.my_issues_projects = user.my_issues_projects or {}
       M.options.hidden_tabs = user.hidden_tabs or {}
+      local qs, qerr = M.parse_queries(user.queries)
+      if not qs then return nil, path .. ": " .. qerr end
+      M.options.queries = qs
     end
   end
 

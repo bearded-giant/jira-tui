@@ -45,6 +45,18 @@ M.TABS = { -- order + hint key, matches jim
   { name = "Help", key = "H" },
 }
 
+-- strip order: My Issues, saved queries, then the built-ins. hidden drops built-ins,
+-- never My Issues or Help.
+function M.tabs(queries, hidden)
+  local out = { M.TABS[1] }
+  for _, q in ipairs(queries or {}) do out[#out + 1] = { name = q.name, key = q.key } end
+  for i = 2, #M.TABS do
+    local t = M.TABS[i]
+    if t.name == "Help" or not (hidden and hidden[t.name]) then out[#out + 1] = t end
+  end
+  return out
+end
+
 -- "JQL:<query>" view naming, one place: build, parse, label
 function M.jql_view(q) return "JQL:" .. q end
 function M.jql_query(view)
@@ -98,18 +110,18 @@ function M.status_bg(status)
 end
 local status_bg = M.status_bg
 
--- ---- tab bar (Help right-aligned; hidden tabs dropped, My Issues never hidden) ----
-function M.tab_bar(view, hidden, width)
+-- ---- tab bar (tabs = M.tabs(...); Help right-aligned) ----
+function M.tab_bar(view, tabs, width)
   local function chip(tab)
-    local label = string.format(" %s (%s) ", tab.name, tab.key)
+    local label = tab.key and string.format(" %s (%s) ", tab.name, tab.key) or (" " .. tab.name .. " ")
     if view == tab.name then return ansi.bgtext(label, C.base, C.yellow, ansi.BOLD) end
     return ansi.bgtext(label, C.text, C.surface2)
   end
-  local left, help = { "  " }, nil
-  for _, tab in ipairs(M.TABS) do
+  local left, help = { "  " }, ""
+  for _, tab in ipairs(tabs) do
     if tab.name == "Help" then
       help = chip(tab)
-    elseif tab.name == "My Issues" or not (hidden and hidden[tab.name]) then
+    else
       left[#left + 1] = chip(tab)
       left[#left + 1] = " "
     end

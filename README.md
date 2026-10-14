@@ -36,8 +36,15 @@ return {
   my_issues_projects = { "ABC", "DEF" },
   -- tabs to hide from the strip (My Issues never hides)
   hidden_tabs = { "Active Sprint", "Backlog" },
+  -- saved queries, each gets its own tab after My Issues
+  queries = {
+    { name = "Review", jql = "status = 'In Review' AND project = ABC" },
+    { name = "Bugs", jql = "type = Bug AND resolution IS EMPTY", key = "5" },
+  },
 }
 ```
+
+Each saved query becomes a tab you can jump to with a digit. `key` is optional and defaults to the query's position in the list, so the first one is `1`, the second `2`, and so on up to `9`. Names have to be unique and can't reuse a built-in tab name (My Issues, JQL, Active Sprint, Backlog, Help).
 
 ## Install
 
@@ -82,6 +89,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `ctrl-d` / `ctrl-u` | half page down / up |
 | `t` | toggle all |
 | `M` | My Issues (assigned to you) |
+| `1`-`9` | jump to a saved query tab (see `queries` in the config) |
 | `S` / `B` | Active Sprint / Backlog |
 | `p` | set / change the project (for sprint + backlog) |
 | `J` | JQL picker (history, or new query; `e` edits the selected query) · `gj` new query |
