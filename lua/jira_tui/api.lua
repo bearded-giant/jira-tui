@@ -1,5 +1,6 @@
 local config = require("jira_tui.config")
 local json = require("jira_tui.json")
+local md = require("jira_tui.md")
 
 local M = {}
 
@@ -167,25 +168,10 @@ function M.assign_issue(issue_key, account_id)
   return curl_request("PUT", "/rest/api/3/issue/" .. issue_key .. "/assignee", { accountId = account_id })
 end
 
--- plain text -> adf doc. blank lines become empty paragraphs (json.encode
--- emits [] for empty tables, which is what jira expects for content).
-function M.text_to_adf(text)
-  if not text or text == "" then return nil end
-  local paragraphs = {}
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    if line == "" then
-      paragraphs[#paragraphs + 1] = { type = "paragraph", content = {} }
-    else
-      paragraphs[#paragraphs + 1] = { type = "paragraph", content = { { type = "text", text = line } } }
-    end
-  end
-  return { type = "doc", version = 1, content = paragraphs }
-end
-
--- append plain text to an existing adf doc (mutates the passed doc's content,
+-- append markdown to an existing adf doc (mutates the passed doc's content,
 -- which is always a freshly fetched issue here). nil doc -> new doc.
 function M.append_to_adf(existing_adf, text)
-  local addition = M.text_to_adf(text)
+  local addition = md.to_adf(text)
   if not addition then return existing_adf end
   if type(existing_adf) ~= "table" or type(existing_adf.content) ~= "table" then return addition end
   for _, p in ipairs(addition.content) do
@@ -206,7 +192,7 @@ function M.create_issue(project_key, summary, issue_type, opts)
     issuetype = { name = issue_type or "Story" },
   }
   if opts.description and opts.description ~= "" then
-    fields.description = M.text_to_adf(opts.description)
+    fields.description = md.to_adf(opts.description)
   end
   if opts.assignee_account_id then
     fields.assignee = { accountId = opts.assignee_account_id }

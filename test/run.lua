@@ -320,17 +320,12 @@ do
   local model = require("jira_tui.model")
   local json = require("jira_tui.json")
 
-  local adf = api.text_to_adf("line one\n\nline two")
-  eq(adf.type, "doc", "text_to_adf builds a doc")
-  eq(#adf.content, 3, "two lines + blank = 3 paragraphs")
-  eq(adf.content[1].content[1].text, "line one", "first paragraph text")
-  eq(#adf.content[2].content, 0, "blank line = empty paragraph")
-  ok(json.encode(adf.content[2].content) == "[]", "empty paragraph encodes as [], not {}")
-  eq(api.text_to_adf(""), nil, "empty text -> nil adf")
+  local adf = require("jira_tui.md").to_adf("line one\n\nline two")
+  eq(#adf.content, 2, "blank line separates paragraphs")
 
   local appended = api.append_to_adf(adf, "line three")
-  eq(#appended.content, 4, "append adds a paragraph")
-  eq(appended.content[4].content[1].text, "line three", "appended text")
+  eq(#appended.content, 3, "append adds a paragraph")
+  eq(appended.content[3].content[1].text, "line three", "appended text")
   local fresh = api.append_to_adf(nil, "solo")
   eq(fresh.content[1].content[1].text, "solo", "append to nil starts a new doc")
 
@@ -583,8 +578,9 @@ do
   ok(fenced:find("  local x = 1", 1, true), "fence content indented, no backticks")
   ok(not fenced:find("```", 1, true), "fence markers gone")
 
-  local q = plain(mdr.to_ansi("> quoted one> quoted two"))
-  ok(q:find("│ quoted one", 1, true) and q:find("│ quoted two", 1, true), "adf-collapsed quote split into rows")
+  local q = plain(mdr.to_ansi("> quoted one\n> quoted two"))
+  ok(q:find("│ quoted one", 1, true) and q:find("│ quoted two", 1, true), "quote lines get a bar each")
+  eq(plain(mdr.to_ansi("> a > b")), "│ a > b", "literal > inside a quote stays")
 
   -- fields detail runs the description through md
   local render = require("jira_tui.render")
@@ -973,6 +969,74 @@ do
   ok(r.ok, "cache patch flow ok (" .. tostring(r.err) .. ")")
   eq(#r.loads, 2, "cache patch: back to M served from cache")
   ok(last_row_with(r.out, "alpha root"):find("Patched", 1, true), "cache patch: cached My Issues shows patched row")
+end
+
+-- ---- markdown -> adf ----
+do
+  local mdm = require("jira_tui.md")
+  local json = require("jira_tui.json")
+  local function rt(x) return (model.adf_to_markdown(mdm.to_adf(x)):gsub("%s+$", "")) end
+  local cases = {
+    { "plain paragraph", "para" },
+    { "two paragraphs", "one\n\ntwo" },
+    { "line break", "a\nb" },
+    { "h1", "# Title" }, { "h3", "### Sub" },
+    { "bullets", "- a\n- b" },
+    { "ordered", "1. a\n2. b" },
+    { "fence + lang", "```lua\nlocal x = 1\nprint(x)\n```" },
+    { "fence no lang", "```\nraw\n```" },
+    { "quote", "> q1\n> q2" },
+    { "rule", "a\n\n---\n\nb" },
+    { "bold", "a **b** c" }, { "em", "a _e_ c" }, { "code", "use `x()` here" },
+    { "strike", "~~gone~~" }, { "link", "see [docs](https://x.io/d)" },
+    { "mixed", "# H\n\nintro **b**\n\n- one\n- two\n\n```sh\nls\n```\n\n> q\n\nend" },
+  }
+  for _, c in ipairs(cases) do eq(rt(c[2]), c[2], "md round-trip: " .. c[1]) end
+
+  eq(rt("*star em*"), "_star em_", "md: *em* normalizes to _em_")
+  eq(rt("* a\n* b"), "- a\n- b", "md: * bullets normalize to -")
+  eq(rt("snake_case_name and 2*3*4"), "snake_case_name and 2*3*4", "md: word-internal _ and * stay literal")
+  local doc = mdm.to_adf("go to https://x.io/a/b.")
+  local para = doc.content[1].content
+  eq(para[2].text, "https://x.io/a/b", "md: bare url, trailing punctuation dropped")
+  eq(para[2].marks[1].attrs.href, "https://x.io/a/b", "md: bare url -> link mark")
+  eq(para[3].text, ".", "md: punctuation stays as text")
+  eq(mdm.to_adf("   \n"), nil, "md: blank -> nil")
+  ok(json.encode(mdm.to_adf("```\n```").content[1].content) == "[]", "md: empty code block content encodes as []")
+  eq(mdm.to_adf("```py\nx").content[1].content[1].text, "x", "md: unclosed fence runs to end")
+end
+
+-- ---- ui.edit_external ----
+do
+  local term = require("jira_tui.term")
+  local ui = require("jira_tui.ui")
+  local order = {}
+  local function rec(name) return function() order[#order + 1] = name end end
+  local _, restore = stub(term, { leave = rec("leave"), raw_off = rec("raw_off"), raw_on = rec("raw_on"), enter = rec("enter") })
+  local o_run = ui._run_editor
+  local seen_path, seen_initial
+  local write = "## New\n\nbody\n\n"
+  ui._run_editor = function(path)
+    order[#order + 1] = "editor"
+    seen_path = path
+    local f = io.open(path, "r"); seen_initial = f:read("*a"); f:close()
+    f = io.open(path, "w"); f:write(write); f:close()
+  end
+  eq(ui.edit_external("old", ".md"), "## New\n\nbody", "edit_external returns edited text, trailing ws trimmed")
+  eq(seen_initial, "old", "edit_external seeds the file")
+  ok(seen_path and seen_path:sub(-3) == ".md", "edit_external keeps the extension")
+  eq(table.concat(order, ","), "leave,raw_off,editor,raw_on,enter", "edit_external restores the terminal around the editor")
+  ok(io.open(seen_path, "r") == nil, "edit_external removes the temp file")
+  write = "old\n"
+  eq(ui.edit_external("old"), nil, "edit_external: unchanged -> nil")
+  write = "  \n"
+  eq(ui.edit_external(""), nil, "edit_external: blank -> nil")
+  ui._run_editor = function() error("editor blew up") end
+  order = {}
+  eq(ui.edit_external("x"), nil, "edit_external: editor error -> nil")
+  eq(table.concat(order, ","), "leave,raw_off,raw_on,enter", "edit_external: terminal restored on editor error")
+  ui._run_editor = o_run
+  restore()
 end
 
 -- ---- row patch after mutations ----

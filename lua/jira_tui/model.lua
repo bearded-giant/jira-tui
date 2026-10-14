@@ -186,6 +186,8 @@ local function parse_adf(node)
     return text
   elseif node.type == "hardBreak" then
     return "\n"
+  elseif node.type == "rule" then
+    return "---\n\n"
   elseif node.type == "mention" or node.type == "emoji" or node.type == "status" then
     local a = node.attrs or {}
     return a.text or a.shortName or a.name or ""
@@ -212,7 +214,7 @@ local function parse_adf(node)
       local level = node.attrs and node.attrs.level or 1
       return string.rep("#", level) .. " " .. joined .. "\n\n"
     elseif node.type == "listItem" then
-      return joined
+      return (joined:gsub("\n+$", "")) .. "\n"
     elseif node.type == "bulletList" then
       local lp = {}
       for _, child in ipairs(node.content) do lp[#lp + 1] = "- " .. parse_adf(child) end
@@ -225,9 +227,7 @@ local function parse_adf(node)
       local lang = node.attrs and node.attrs.language or ""
       return "```" .. lang .. "\n" .. joined .. "\n```\n\n"
     elseif node.type == "blockquote" then
-      return "> " .. joined:gsub("\n", "> ") .. "\n\n"
-    elseif node.type == "rule" then
-      return "---\n\n"
+      return "> " .. (joined:gsub("\n+$", ""):gsub("\n", "\n> ")) .. "\n\n"
     end
     return joined
   end

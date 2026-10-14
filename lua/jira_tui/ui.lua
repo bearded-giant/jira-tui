@@ -142,6 +142,48 @@ function M.input(title, opts)
   end
 end
 
+local function shq(s) return "'" .. s:gsub("'", "'\\''") .. "'" end
+
+local function env(name) local v = os.getenv(name); return v ~= "" and v or nil end
+
+-- swapped in tests. $VISUAL/$EDITOR may carry args ("code -w"), so they go unquoted.
+M._run_editor = function(path)
+  local ed = env("VISUAL") or env("EDITOR")
+  if not ed then
+    local ok = os.execute("command -v nvim >/dev/null 2>&1")
+    ed = (ok == true or ok == 0) and "nvim" or "vi"
+  end
+  os.execute(ed .. " " .. shq(path))
+end
+
+-- edit text in the user's editor, outside raw mode + alt screen.
+-- returns the new text, or nil when blank, unchanged, or the temp file failed.
+function M.edit_external(initial, ext)
+  initial = initial or ""
+  local p = io.popen("umask 077; mktemp 2>/dev/null")
+  local tmp = p and p:read("*l")
+  if p then p:close() end
+  if not tmp or tmp == "" then return nil end
+  local path = tmp .. (ext or ".md")
+  if not os.rename(tmp, path) then os.remove(tmp); return nil end
+  local f = io.open(path, "w")
+  if not f then os.remove(path); return nil end
+  f:write(initial)
+  f:close()
+  term.leave(); term.raw_off()
+  local ok = pcall(M._run_editor, path)
+  term.raw_on(); term.enter()
+  M._dirty = true
+  f = io.open(path, "r")
+  local text = f and f:read("*a") or nil
+  if f then f:close() end
+  os.remove(path)
+  if not ok or not text then return nil end
+  text = text:gsub("%s+$", "")
+  if text == "" or text == initial:gsub("%s+$", "") then return nil end
+  return text
+end
+
 -- select modal. items list, opts.format(item)->string, opts.keys {key = action}
 -- + opts.hint for extra actions. returns item, index, action (nil on Enter) or nil.
 function M.select(title, items, opts)
