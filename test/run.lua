@@ -745,6 +745,27 @@ do
   ok(r.out:find("PE-1 → In Progress", 1, true), "s: success message shown")
 end
 
+-- ---- api.myself memo ----
+do
+  local api = require("jira_tui.api")
+  api._me = nil
+  local fail = true
+  local log, restore = stub(api, { request = function()
+    if fail then return nil, "http 500" end
+    return { accountId = "acc-1", displayName = "Me", emailAddress = "x" }
+  end })
+  local me, err = api.myself()
+  ok(me == nil and err == "http 500", "myself: failure returns err")
+  fail = false
+  me = api.myself()
+  eq(me and me.accountId, "acc-1", "myself: accountId")
+  eq(me and me.displayName, "Me", "myself: displayName")
+  api.myself()
+  eq(#calls(log, "request"), 2, "myself: failure not cached, success cached (2 requests for 3 calls)")
+  eq(log[1][3], "/rest/api/3/myself", "myself endpoint")
+  restore(); api._me = nil
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }
@@ -771,7 +792,7 @@ do
   -- assign patches one row, no view reload
   local rowfn = function(key) return { key = key, summary = "alpha root", status = "To Do", assignee = "Zed" } end
   local r = run_tui(keyseq("A"), {
-    api = { get_myself = function() return { accountId = "me1", displayName = "Zed" } end,
+    api = { myself = function() return { accountId = "me1", displayName = "Zed" } end,
       assign_issue = function() return true end },
     sprint = { get_issue_row = rowfn },
   })
@@ -783,7 +804,7 @@ do
 
   -- refresh failure keeps rows and says so instead of a bare success
   r = run_tui(keyseq("A"), {
-    api = { get_myself = function() return { accountId = "me1" } end, assign_issue = function() return true end },
+    api = { myself = function() return { accountId = "me1" } end, assign_issue = function() return true end },
     sprint = { get_issue_row = function() return nil, "boom" end },
   })
   ok(r.out:find("row refresh failed: boom", 1, true), "assign: refresh error surfaced")
@@ -791,7 +812,7 @@ do
 
   -- create appends the new row
   r = run_tui(keyseq("c", "new thing", "ctrl-s"), {
-    api = { get_myself = function() return { accountId = "me1" } end,
+    api = { myself = function() return { accountId = "me1" } end,
       create_issue = function() return { key = "PE-99" } end },
     sprint = { get_issue_row = function(key) return { key = key, summary = "new thing", status = "To Do" } end },
   })

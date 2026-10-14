@@ -138,8 +138,14 @@ function M.transition_issue(issue_key, transition_id)
     { transition = { id = transition_id } })
 end
 
-function M.get_myself()
-  return curl_request("GET", "/rest/api/3/myself", nil)
+-- memoized on success only, so a transient failure doesn't stick for the session
+M._me = nil
+function M.myself()
+  if M._me then return M._me end
+  local res, err = M.request("GET", "/rest/api/3/myself", nil)
+  if err or type(res) ~= "table" or not res.accountId then return nil, err or "cannot resolve current user" end
+  M._me = { accountId = res.accountId, displayName = res.displayName }
+  return M._me
 end
 
 function M.get_comments(issue_key, max)

@@ -325,11 +325,9 @@ function M.run(opts)
   local function assign_me(n)
     if not n then return end
     st.message = "resolving current user…"; draw()
-    local me, merr = api.get_myself()
+    local me, merr = api.myself()
     st.message = nil
-    if merr or type(me) ~= "table" or not me.accountId then
-      st.message = merr or "cannot resolve current user"; return
-    end
+    if not me then st.message = merr; return end
     do_assign(n, me.accountId, me.displayName or "me")
   end
 
@@ -357,14 +355,6 @@ function M.run(opts)
     local _, xerr = api.transition_issue(n.key, choice.id)
     if xerr then st.message = n.key .. ": " .. xerr; return end
     refresh_row(n.key, n.key .. " → " .. (type(choice.to) == "table" and choice.to.name or choice.name))
-  end
-
-  local me_account -- cached accountId for self-assign on create
-  local function my_account_id()
-    if me_account then return me_account end
-    local me = api.get_myself()
-    me_account = type(me) == "table" and me.accountId or nil
-    return me_account
   end
 
   local function close_issue(n)
@@ -418,7 +408,7 @@ function M.run(opts)
     if title == "" then st.message = "create needs a title"; return end
     st.message = "creating story in " .. st.project .. "…"; draw()
     local res, cerr = api.create_issue(st.project, title, "Story",
-      { description = desc, assignee_account_id = my_account_id() })
+      { description = desc, assignee_account_id = (api.myself() or {}).accountId })
     if cerr then st.message = "create failed: " .. cerr; return end
     local new_key = type(res) == "table" and res.key
     if not new_key then st.message, st.message_ok = "created issue", true; return end
