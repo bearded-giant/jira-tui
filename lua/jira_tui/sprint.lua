@@ -72,11 +72,13 @@ local function fetch_all(project, jql)
   end
 end
 
+-- direct GET, not jql: search lags writes, so a just-created or just-moved issue reads stale or missing
 function M.get_issue_row(key, project)
-  local rows, err = fetch_all(project or key:match("^(.-)%-%d+$"), "key = " .. key)
-  if not rows then return nil, err end
-  if not rows[1] then return nil, "not found" end
-  return rows[1]
+  project = project or key:match("^(.-)%-%d+$")
+  local issue, err = api.get_issue(key, api.row_fields(project))
+  if err then return nil, err end
+  if type(issue) ~= "table" or not issue.key then return nil, "not found" end
+  return map_issue(issue, config.get_project_config(project).story_point_field)
 end
 
 -- every user string that lands inside jql goes through here: an embedded quote

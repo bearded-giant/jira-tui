@@ -102,7 +102,8 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `x` | show / hide resolved |
 | `K` / `m` | issue detail with comments / raw markdown |
 | `e` | edit issue: summary, append description, or status |
-| `c` | create story in the current project (assigned to you) |
+| `c` | create an issue in the current project: pick a type, then fill the template in your editor (assigned to you) |
+| `gc` | create a child of the selected row: sub-task under a story/task, standard type under an epic |
 | `d` | close issue via the first done-ish transition |
 | `c` (in detail) | expand / collapse comments (start collapsed) |
 | `o` (in detail) | pick an attachment, download and open it |
@@ -118,6 +119,22 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `?` / `H` | help |
 | `q` | back: closes detail / help / pickers, never the app |
 | `Esc` | quit |
+
+Creating opens your editor on a small template. The first line is the summary, the `labels:`, `points:` and `priority:` lines are optional (leave them blank to skip), and everything under `---` is the description in markdown:
+
+```
+Rate limit the export endpoint
+labels: api, perf
+points: 3
+priority: High
+---
+Exports hammer the DB when a big store runs them back to back.
+
+- cap at 1 per minute per store
+- return 429 with Retry-After
+```
+
+If the create fails (a typo in a field line, or Jira rejects it), the next `c` reopens your draft so nothing is lost.
 
 `/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
 

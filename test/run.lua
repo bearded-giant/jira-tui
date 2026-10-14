@@ -339,15 +339,24 @@ do
   eq(model.pick_done_transition({ trs[1] }), nil, "nil when nothing done-ish")
   eq(model.pick_done_transition(nil), nil, "nil transitions tolerated")
 
-  local t, d = model.split_create_input("my title\n---\nbody line\nmore")
-  eq(t, "my title", "title above ---")
-  eq(d, "body line\nmore", "description below ---")
-  t, d = model.split_create_input("just a title")
-  eq(t, "just a title", "title only, no ---")
-  eq(d, nil, "no description without body")
-  t, d = model.split_create_input("title\nrest without marker")
-  eq(t, "title", "first line is title without ---")
-  eq(d, "rest without marker", "rest becomes description")
+  local pc = model.parse_create("Fix the thing\nlabels: a, b c\npoints: 3\npriority: High\n---\n## Body\n\n- x\n")
+  eq(pc.summary, "Fix the thing", "parse_create summary")
+  eq(table.concat(pc.labels, "|"), "a|b|c", "parse_create labels split on comma/space")
+  eq(pc.points, 3, "parse_create points")
+  eq(pc.priority, "High", "parse_create priority")
+  eq(pc.description, "## Body\n\n- x", "parse_create body after ---")
+  pc = model.parse_create("Title only" .. model.CREATE_TEMPLATE:sub(1))
+  ok(pc and pc.labels == nil and pc.points == nil and pc.priority == nil and pc.description == nil,
+    "parse_create: untouched template fields -> nil")
+  pc = model.parse_create("t\nrest without marker")
+  eq(pc.description, "rest without marker", "parse_create: no --- -> rest is body")
+  local bad, berr = model.parse_create("t\nowner: me\n---\n")
+  ok(bad == nil and berr:find("unknown field line: owner: me", 1, true), "parse_create: unknown field rejected")
+  bad, berr = model.parse_create("t\npoints: lots\n---\n")
+  ok(bad == nil and berr:find("points"), "parse_create: non-numeric points rejected")
+  bad, berr = model.parse_create(model.CREATE_TEMPLATE)
+  ok(bad == nil and berr:find("summary"), "parse_create: empty summary rejected")
+  eq(table.concat(model.split_labels(" a,,b  c "), "|"), "a|b|c", "split_labels")
 end
 
 -- ---- fetch_all truncation flag ----
@@ -1181,6 +1190,72 @@ do
   eq(aa[1] and aa[1][3], "b1", "assign search: picks the searched user")
 end
 
+-- ---- typed create + child create ----
+do
+  local api = require("jira_tui.api")
+  local config = require("jira_tui.config")
+  api._create_types = {}
+  local log, restore = stub(api, { request = function(_, ep)
+    if ep:find("createmeta") then return { issueTypes = { { id = "10001", name = "Story", subtask = false } } } end
+    return { key = "PE-50" }
+  end })
+  eq(api.get_create_types("PE")[1].name, "Story", "get_create_types returns issueTypes")
+  api.get_create_types("PE")
+  eq(#log, 1, "get_create_types cached per project")
+  eq(log[1][3], "/rest/api/3/issue/createmeta/PE/issuetypes", "get_create_types endpoint")
+  api.create_issue("PE", "S", { id = "10003" }, { parent = "PE-2", labels = { "x" }, points = 2, priority = "High",
+    description = "**b**", assignee_account_id = "me" })
+  local f = log[2][4].fields
+  eq(f.issuetype.id, "10003", "create: issuetype by id")
+  eq(f.parent.key, "PE-2", "create: parent key")
+  eq(f.labels[1], "x", "create: labels")
+  eq(f[config.get_project_config("PE").story_point_field], 2, "create: points on the project's field")
+  eq(f.priority.name, "High", "create: priority by name")
+  eq(f.description.content[1].content[1].marks[1].type, "strong", "create: description from markdown")
+  api.create_issue("PE", "S", "Story")
+  eq(log[3][4].fields.issuetype.name, "Story", "create: type name still accepted")
+  restore(); api._create_types = {}
+
+  local TYPES = { { id = "1", name = "Epic", subtask = false }, { id = "2", name = "Story", subtask = false },
+    { id = "3", name = "Sub-task", subtask = true }, { id = "4", name = "Sub-defect", subtask = true } }
+  local function created(keys, issues, editor)
+    local shown
+    local r = run_tui(keys, { issues = issues,
+      ui = { edit_external = function() return editor or "Child\nlabels: t1\n---\nbody" end },
+      api = { get_create_types = function() return TYPES end, myself = function() return { accountId = "me1" } end,
+        create_issue = function() return { key = "PE-77" } end },
+      sprint = { get_issue_row = function(key) return { key = key, summary = "Child", status = "To Do" } end } })
+    return r, calls(r.api, "create_issue")[1]
+  end
+  -- gc on a story -> sub-task types, parent = that story
+  local r, c = created(keyseq("g", "c", "j", "enter"))
+  ok(r.ok, "gc flow ok (" .. tostring(r.err) .. ")")
+  eq(c and c[4].id, "4", "gc on story: picker offers sub-task types only (2nd = Sub-defect)")
+  eq(c and c[5].parent, "PE-1", "gc on story: parent = row")
+  eq(c and c[5].labels[1], "t1", "gc: template fields passed")
+  ok(r.out:find("created PE-77", 1, true), "gc: new row appended")
+  -- gc on a sub-task row -> sibling under the same parent
+  r, c = created(keyseq("j", "j", "g", "c", "enter"))
+  eq(c and c[5].parent, "PE-2", "gc on sub-task: parent = its parent")
+  eq(c and c[4].id, "3", "gc on sub-task: sub-task types")
+  -- gc on an epic -> standard types
+  r, c = created(keyseq("g", "c", "j", "enter"), { { key = "PE-9", summary = "epic", type = "Epic", status = "To Do" } })
+  eq(c and c[4].id, "2", "gc on epic: standard types (2nd = Story)")
+  eq(c and c[5].parent, "PE-9", "gc on epic: parent = epic")
+  -- c in project -> standard types, no parent
+  r, c = created(keyseq("c", "enter"))
+  eq(c and c[4].id, "1", "c: standard types")
+  eq(c and c[5].parent, nil, "c: no parent")
+  -- parse error keeps the draft for the next c
+  local drafts = {}
+  r = run_tui(keyseq("c", "enter", "c", "enter"), {
+    ui = { edit_external = function(initial) drafts[#drafts + 1] = initial; return "t\nbogus: 1\n---\n" end },
+    api = { get_create_types = function() return TYPES end, create_issue = function() return { key = "X" } end } })
+  ok(r.out:find("unknown field line: bogus: 1", 1, true), "c: parse error shown")
+  eq(#calls(r.api, "create_issue"), 0, "c: parse error sends nothing")
+  eq(drafts[2], "t\nbogus: 1\n---\n", "c: failed draft reopens on next c")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }
@@ -1191,17 +1266,17 @@ do
   eq(raw[3].key, "A-3", "appended row")
 
   local api = require("jira_tui.api")
-  local log, restore = stub(api, { search_issues = function(jql)
-    if jql == "key = PE-9" then return { issues = {} } end
-    return { issues = { { key = "PE-7", fields = { summary = "s", status = { name = "Done" } } } } }
+  local log, restore = stub(api, { get_issue = function(key)
+    if key == "PE-9" then return nil, "http 404" end
+    return { key = "PE-7", fields = { summary = "s", status = { name = "Done" } } }
   end })
   local row = sprint.get_issue_row("PE-7")
   eq(row and row.key, "PE-7", "get_issue_row maps the row")
   eq(row and row.status, "Done", "get_issue_row maps status")
-  eq(log[1][2], "key = PE-7", "get_issue_row queries by key")
-  eq(log[1][6], "PE", "get_issue_row derives project from key")
+  eq(log[1][2], "PE-7", "get_issue_row reads the issue directly (search lags writes)")
+  ok(table.concat(log[1][3], ","):find("issuetype", 1, true), "get_issue_row asks for row fields only")
   local none, nerr = sprint.get_issue_row("PE-9")
-  ok(none == nil and nerr == "not found", "get_issue_row: missing key -> nil, not found")
+  ok(none == nil and nerr == "http 404", "get_issue_row: error passed through")
   restore()
 
   -- assign patches one row, no view reload
@@ -1226,8 +1301,10 @@ do
   ok(r.out:find("alpha root", 1, true), "assign: rows kept on refresh failure")
 
   -- create appends the new row
-  r = run_tui(keyseq("c", "new thing", "ctrl-s"), {
+  r = run_tui(keyseq("c", "enter"), {
+    ui = { edit_external = function() return "new thing" end },
     api = { myself = function() return { accountId = "me1" } end,
+      get_create_types = function() return { { id = "1", name = "Story", subtask = false } } end,
       create_issue = function() return { key = "PE-99" } end },
     sprint = { get_issue_row = function(key) return { key = key, summary = "new thing", status = "To Do" } end },
   })

@@ -109,13 +109,17 @@ end
 
 M.request = curl_request
 
-function M.search_issues(jql, page_token, max_results, fields, project_key)
-  local p_config = config.get_project_config(project_key)
-  fields = fields or {
+-- fields behind a board row (sprint map_issue)
+function M.row_fields(project_key)
+  return {
     "summary", "status", "parent", "priority", "assignee", "reporter",
     "created", "timespent", "timeoriginalestimate", "issuetype",
-    p_config.story_point_field,
+    config.get_project_config(project_key).story_point_field,
   }
+end
+
+function M.search_issues(jql, page_token, max_results, fields, project_key)
+  fields = fields or M.row_fields(project_key)
   return curl_request("POST", "/rest/api/3/search/jql", {
     jql = jql,
     fields = fields,
@@ -194,20 +198,33 @@ function M.update_issue(issue_key, fields)
   return curl_request("PUT", "/rest/api/3/issue/" .. issue_key, { fields = fields })
 end
 
+M._create_types = {}
+function M.get_create_types(project)
+  if M._create_types[project] then return M._create_types[project] end
+  local res, err = M.request("GET", "/rest/api/3/issue/createmeta/" .. project .. "/issuetypes", nil)
+  if err or type(res) ~= "table" or type(res.issueTypes) ~= "table" then return nil, err or "no issue types" end
+  M._create_types[project] = res.issueTypes
+  return res.issueTypes
+end
+
+-- issue_type: a createmeta type ({ id = ... }) or a type name.
+-- opts: description (markdown), assignee_account_id, parent (key), labels, points, priority (name)
 function M.create_issue(project_key, summary, issue_type, opts)
   opts = opts or {}
   local fields = {
     project = { key = project_key },
     summary = summary,
-    issuetype = { name = issue_type or "Story" },
+    issuetype = type(issue_type) == "table" and { id = issue_type.id } or { name = issue_type or "Story" },
   }
   if opts.description and opts.description ~= "" then
     fields.description = md.to_adf(opts.description)
   end
-  if opts.assignee_account_id then
-    fields.assignee = { accountId = opts.assignee_account_id }
-  end
-  return curl_request("POST", "/rest/api/3/issue", { fields = fields })
+  if opts.assignee_account_id then fields.assignee = { accountId = opts.assignee_account_id } end
+  if opts.parent then fields.parent = { key = opts.parent } end
+  if opts.labels and #opts.labels > 0 then fields.labels = opts.labels end
+  if opts.points then fields[config.get_project_config(project_key).story_point_field] = opts.points end
+  if opts.priority then fields.priority = { name = opts.priority } end
+  return M.request("POST", "/rest/api/3/issue", { fields = fields })
 end
 
 function M.add_worklog(issue_key, time_spent)

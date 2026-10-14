@@ -84,14 +84,44 @@ function M.pick_done_transition(trs)
   return nil
 end
 
--- "title\n---\ndescription" -> title, description. no --- : first line is the
--- title, the rest (if any) the description.
-function M.split_create_input(txt)
-  local title, desc = txt:match("^(.-)\n%-%-%-+\n(.*)$")
-  if not title then title, desc = txt:match("^([^\n]*)\n?(.*)$") end
-  title = (title or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\n", " ")
-  desc = (desc or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  return title, desc ~= "" and desc or nil
+function M.split_labels(s)
+  local out = {}
+  for w in (s or ""):gmatch("[^,%s]+") do out[#out + 1] = w end
+  return out
+end
+
+local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+M.CREATE_TEMPLATE = "\nlabels: \npoints: \npriority: \n---\n"
+local CREATE_FIELDS = { labels = true, points = true, priority = true }
+
+-- create template -> { summary, labels, points, priority, description } or nil, err.
+-- line 1 = summary; "key: value" lines up to "---" are fields; the rest is the markdown body.
+-- without "---" everything after line 1 is the body.
+function M.parse_create(text)
+  local lines = {}
+  for l in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = l end
+  local out = { summary = trim(lines[1] or "") }
+  if out.summary == "" then return nil, "summary (first line) is empty" end
+  local sep
+  for i = 2, #lines do if lines[i]:match("^%-%-%-%s*$") then sep = i; break end end
+  for i = 2, (sep or 1) - 1 do
+    if lines[i]:match("%S") then
+      local k, v = lines[i]:match("^%s*(%a+):%s*(.-)%s*$")
+      k = k and k:lower()
+      if not k or not CREATE_FIELDS[k] then return nil, "unknown field line: " .. trim(lines[i]) end
+      if v ~= "" then
+        if k == "labels" then out.labels = M.split_labels(v)
+        elseif k == "points" then
+          out.points = tonumber(v)
+          if not out.points or out.points < 0 then return nil, "points must be a number" end
+        else out.priority = v end
+      end
+    end
+  end
+  local body = trim(table.concat(lines, "\n", (sep or 1) + 1))
+  out.description = body ~= "" and body or nil
+  return out
 end
 
 -- client-side board filter: plain case-insensitive substring on summary or key

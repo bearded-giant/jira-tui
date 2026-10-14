@@ -426,17 +426,42 @@ function M.run(opts)
     st.message, st.message_ok = "commented on " .. n.key, true
   end
 
-  local function create_story()
-    if not ensure_project() then return end
-    local txt = ui.input("New story in " .. st.project .. "  (title / --- / description)",
-      { multiline = true, height = 12 })
-    if not txt or txt == "" then return end
-    local title, desc = model.split_create_input(txt)
-    if title == "" then st.message = "create needs a title"; return end
-    st.message = "creating story in " .. st.project .. "…"; draw()
-    local res, cerr = api.create_issue(st.project, title, "Story",
-      { description = desc, assignee_account_id = (api.myself() or {}).accountId })
-    if cerr then st.message = "create failed: " .. cerr; return end
+  -- c: pick a type in project. gc (parent row given): child of that row; an epic takes
+  -- standard types, anything else takes sub-task types, and a sub-task row adds a sibling.
+  -- a failed create keeps the text as the next template so nothing typed is lost.
+  local function create_flow(project, parent)
+    st.message = "loading issue types for " .. project .. "…"; draw()
+    local types, terr = api.get_create_types(project)
+    st.message = nil
+    if not types then st.message = project .. ": " .. terr; return end
+    local parent_key, want_sub
+    if parent then
+      local row_sub = false
+      for _, t in ipairs(types) do if t.name == parent.type and t.subtask then row_sub = true end end
+      parent_key = row_sub and parent.parent or parent.key
+      if not parent_key then st.message = parent.key .. ": sub-task without a parent"; return end
+      want_sub = parent.type ~= "Epic"
+    end
+    local pickable = {}
+    for _, t in ipairs(types) do
+      if (t.subtask == true) == (want_sub == true) then pickable[#pickable + 1] = t end
+    end
+    if #pickable == 0 then st.message = project .. ": no matching issue types"; return end
+    draw()
+    local itype = ui.select(parent_key and ("New child of " .. parent_key) or ("New issue in " .. project),
+      pickable, { format = function(t) return t.name end })
+    if not itype then return end
+    local text = ui.edit_external(st.create_draft or model.CREATE_TEMPLATE, ".md")
+    if not text then st.message = "create cancelled"; return end
+    local f, perr = model.parse_create(text)
+    if not f then st.create_draft = text; st.message = "create: " .. perr .. " (c reopens your draft)"; return end
+    st.message = "creating " .. itype.name .. " in " .. project .. "…"; draw()
+    local res, cerr = api.create_issue(project, f.summary, itype, {
+      description = f.description, labels = f.labels, points = f.points, priority = f.priority,
+      parent = parent_key, assignee_account_id = (api.myself() or {}).accountId,
+    })
+    if cerr then st.create_draft = text; st.message = "create failed: " .. cerr .. " (c reopens your draft)"; return end
+    st.create_draft = nil
     local new_key = type(res) == "table" and res.key
     if not new_key then st.message, st.message_ok = "created issue", true; return end
     refresh_row(new_key, "created " .. new_key)
@@ -631,6 +656,7 @@ function M.run(opts)
             yank(br, "branch " .. br)
           end
         elseif nk == "j" then edit_jql("New JQL")
+        elseif nk == "c" then if n then create_flow(n.key:match("^(.-)%-%d+$"), n) end
         elseif nk == "s" then
           -- menu is the rendered column table, so menu/columns/indicator can't drift
           local choice = ui.select("Sort by", render.COLUMNS, { format = function(c) return c.l end })
@@ -644,7 +670,7 @@ function M.run(opts)
       elseif k == "s" then change_status(n)
       elseif k == "d" then close_issue(n)
       elseif k == "e" then edit_issue(n)
-      elseif k == "c" then create_story()
+      elseif k == "c" then if ensure_project() then create_flow(st.project) end
       elseif k == "C" then comment_on(n)
       end
       draw()
