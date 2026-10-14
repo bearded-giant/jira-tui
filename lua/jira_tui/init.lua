@@ -42,7 +42,7 @@ config: ]] .. config.config_path() .. [[ (lua table) or env
 
 keys: j/k move  Enter open  / filter  M mine  1-9 saved queries  p project  J jql
       K detail  s status  a/A assign  C comment  w log work  y/Y copy  gb branch  b open
-      gi go to issue  x hide-resolved  r refresh  q back  Esc quit  ? help
+      gi go to issue  x hide-resolved  r refresh  q back  Esc Esc quit  ? help
 ]])
 end
 

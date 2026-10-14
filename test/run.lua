@@ -1707,6 +1707,38 @@ do
   eq(#r.loads, 1, "auto-refresh: off without refresh_interval")
 end
 
+-- ---- Esc semantics ----
+do
+  local r = run_tui(keyseq("esc", "r"))
+  ok(r.ok, "esc flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 2, "esc: single Esc keeps running")
+  ok(r.out:find("Esc again to quit", 1, true), "esc: arms with a message")
+  r = run_tui(keyseq("esc", "esc", "r"))
+  eq(#r.loads, 1, "esc: double Esc quits")
+  r = run_tui(keyseq("esc", "j", "esc", "r"))
+  eq(#r.loads, 2, "esc: another key disarms")
+  r = run_tui(keyseq("/", "delta", "enter", "esc", "r"))
+  eq(#r.loads, 2, "esc: with a filter, clears it and keeps running")
+  local p1 = r.out:find("(1)", 1, true)
+  ok(p1 and r.out:find("(4)", p1, true), "esc: filter cleared (count back to 4)")
+  r = run_tui(keyseq("w", "zz", "enter", "esc", "esc", "r"))
+  eq(#r.loads, 2, "esc: first clears a message, second arms")
+  local cancelled = 0
+  local n = 0
+  r = run_tui(keyseq("r", "esc", "esc", "r"), {
+    load = function()
+      n = n + 1
+      if n == 2 then for i = 1, 9 do coroutine.yield({ fake = i }) end end
+      return TUI_FIXTURE, nil
+    end,
+    api = { cancel = function() cancelled = cancelled + 1 end } })
+  ok(r.out:find("load cancelled", 1, true), "esc: cancels a running load")
+  eq(cancelled, 1, "esc: in-flight handle cancelled")
+  eq(#r.loads, 3, "esc: cancel then arm, app still running")
+  r = run_tui(keyseq("ctrl-c", "r"))
+  eq(#r.loads, 1, "ctrl-c: instant quit")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

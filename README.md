@@ -127,7 +127,8 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `r` | refresh, skipping the view cache (keeps cursor and filter) |
 | `?` / `H` | help |
 | `q` | back: closes detail / help / pickers, never the app |
-| `Esc` | quit |
+| `Esc` | cancel a running load, else clear the filter, else clear the footer message, else arm quit; a second `Esc` quits |
+| `ctrl-c` | quit immediately |
 
 Creating opens your editor on a small template. The first line is the summary, the `labels:`, `points:` and `priority:` lines are optional (leave them blank to skip), and everything under `---` is the description in markdown:
 

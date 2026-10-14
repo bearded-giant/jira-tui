@@ -371,7 +371,8 @@ local HELP = {
   { "General", {
     { "r", "Refresh" }, { "H / ?", "Help (q / Esc closes it)" },
     { "/ (picker)", "Filter the list; in the assign picker Enter searches all users" },
-    { "q", "Back (closes popups, never the app)" }, { "Esc", "Quit" },
+    { "q", "Back (closes popups, never the app)" },
+    { "Esc", "Cancel load, clear filter, clear message; Esc Esc quits" }, { "Ctrl-c", "Quit now" },
   } },
 }
 

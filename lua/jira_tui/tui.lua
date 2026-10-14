@@ -704,6 +704,9 @@ function M.run(opts)
       else
       local n = cur_node()
       st.message_ok = false
+      local armed = st.quit_armed
+      st.quit_armed = false
+      if armed and k ~= "esc" then st.message = nil end
 
       -- help is an overlay: only quit/close and tab keys get through, so data keys
       -- (r, x, /, ...) can't fire loaders or move the cursor while it's up
@@ -718,8 +721,15 @@ function M.run(opts)
       end
 
       if swallowed then -- redraw only
-      elseif k == "esc" or k == "ctrl-c" then break
-      elseif k == "q" then st.message = "q goes back · Esc quits" -- q never closes the tui
+      elseif k == "ctrl-c" then break
+      elseif k == "esc" then
+        -- a stray Esc after a modal shouldn't end the session: it peels state off first
+        if armed then break
+        elseif st.job and st.job.kind ~= "detail" then cancel_job(); st.message = "load cancelled"
+        elseif st.filter then st.filter = nil; rebuild(n and n.key)
+        elseif st.message then st.message = nil
+        else st.message, st.quit_armed = "Esc again to quit", true end
+      elseif k == "q" then st.message = "q goes back · Esc Esc quits" -- q never closes the tui
       elseif k == "j" or k == "down" then st.cursor = step(st.cursor, 1)
       elseif k == "k" or k == "up" then st.cursor = step(st.cursor, -1)
       elseif k == "wheeldown" then for _ = 1, 3 do st.cursor = step(st.cursor, 1) end

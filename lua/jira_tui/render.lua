@@ -163,7 +163,7 @@ end
 
 -- ---- hint / filter line ----
 -- tab keys (M/J/S/B/H) live in the header; footer shows actions only
-local HINTS = { "j/k move", "⏎ open", "/ filter", "s status", "a assign", "K detail", "b open", "r refresh", "Esc quit" }
+local HINTS = { "j/k move", "⏎ open", "/ filter", "s status", "a assign", "K detail", "b open", "r refresh", "Esc Esc quit" }
 
 function M.hint_line(view, filter, width)
   if filter and filter ~= "" then
@@ -172,7 +172,7 @@ function M.hint_line(view, filter, width)
   local items = {}
   for i, h in ipairs(HINTS) do items[i] = h end
   local function line() return "  " .. table.concat(items, "   ") end
-  -- narrow board: drop hints from the tail, but always keep "Esc quit"
+  -- narrow board: drop hints from the tail, but always keep "Esc Esc quit"
   while width and #items > 1 and ansi.width(line()) > width do table.remove(items, #items - 1) end
   return ansi.fgtext(line(), C.overlay)
 end
