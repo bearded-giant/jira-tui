@@ -5,6 +5,7 @@ local ansi = require("jira_tui.ansi")
 local api = require("jira_tui.api")
 local config = require("jira_tui.config")
 local model = require("jira_tui.model")
+local sprint = require("jira_tui.sprint")
 local version = require("jira_tui.version")
 
 local M = {}
@@ -97,6 +98,19 @@ function M.run(opts)
     st.cursor, st.scroll, st.message = 1, 0, nil
     if rebuild(keep and keep.key) then st.scroll = old_scroll end -- draw() clamps if it no longer fits
     if persist then persist.remember(view, st.project) end
+    return true
+  end
+
+  -- after a mutation re-fetch just that row (~0.4s) instead of reloading the view (0.7-4s)
+  local function refresh_row(key, done_msg)
+    local row, err = sprint.get_issue_row(key)
+    if not row then
+      st.message, st.message_ok = done_msg .. "; row refresh failed: " .. (err or "?"), false
+      return false
+    end
+    model.upsert_row(st.raw, row)
+    rebuild(key)
+    st.message, st.message_ok = done_msg, true
     return true
   end
 
@@ -291,9 +305,7 @@ function M.run(opts)
     st.message = "assigning " .. n.key .. "…"; draw()
     local _, aerr = api.assign_issue(n.key, account_id)
     if aerr then st.message = n.key .. ": " .. aerr; return end
-    load_view(st.view, st.filter)
-    st.message = n.key .. " → " .. label
-    st.message_ok = true
+    refresh_row(n.key, n.key .. " → " .. label)
   end
 
   local function assign_picker(n)
@@ -344,9 +356,7 @@ function M.run(opts)
     st.message = "moving " .. n.key .. "…"; draw()
     local _, xerr = api.transition_issue(n.key, choice.id)
     if xerr then st.message = n.key .. ": " .. xerr; return end
-    load_view(st.view, st.filter)
-    st.message = n.key .. " → " .. (type(choice.to) == "table" and choice.to.name or choice.name)
-    st.message_ok = true
+    refresh_row(n.key, n.key .. " → " .. (type(choice.to) == "table" and choice.to.name or choice.name))
   end
 
   local me_account -- cached accountId for self-assign on create
@@ -369,9 +379,7 @@ function M.run(opts)
     st.message = "closing " .. n.key .. "…"; draw()
     local _, xerr = api.transition_issue(n.key, pick.id)
     if xerr then st.message = n.key .. ": " .. xerr; return end
-    load_view(st.view, st.filter)
-    st.message = n.key .. " → " .. (type(pick.to) == "table" and pick.to.name or pick.name)
-    st.message_ok = true
+    refresh_row(n.key, n.key .. " → " .. (type(pick.to) == "table" and pick.to.name or pick.name))
   end
 
   local function edit_issue(n)
@@ -385,8 +393,7 @@ function M.run(opts)
       st.message = "updating " .. n.key .. "…"; draw()
       local _, uerr = api.update_issue(n.key, { summary = s })
       if uerr then st.message = n.key .. ": " .. uerr; return end
-      load_view(st.view, st.filter)
-      st.message = n.key .. " summary updated"; st.message_ok = true
+      refresh_row(n.key, n.key .. " summary updated")
       return
     end
     local txt = ui.input("Append description: " .. n.key, { multiline = true })
@@ -399,8 +406,7 @@ function M.run(opts)
     st.message = "updating " .. n.key .. "…"; draw()
     local _, uerr = api.update_issue(n.key, { description = api.append_to_adf(issue.fields.description, txt) })
     if uerr then st.message = n.key .. ": " .. uerr; return end
-    load_view(st.view, st.filter)
-    st.message = n.key .. " description updated"; st.message_ok = true
+    refresh_row(n.key, n.key .. " description updated")
   end
 
   local function create_story()
@@ -414,9 +420,9 @@ function M.run(opts)
     local res, cerr = api.create_issue(st.project, title, "Story",
       { description = desc, assignee_account_id = my_account_id() })
     if cerr then st.message = "create failed: " .. cerr; return end
-    load_view(st.view, st.filter)
-    st.message = "created " .. (type(res) == "table" and res.key or "issue")
-    st.message_ok = true
+    local new_key = type(res) == "table" and res.key
+    if not new_key then st.message, st.message_ok = "created issue", true; return end
+    refresh_row(new_key, "created " .. new_key)
   end
 
 

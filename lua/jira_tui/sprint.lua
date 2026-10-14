@@ -72,6 +72,13 @@ local function fetch_all(project, jql)
   end
 end
 
+function M.get_issue_row(key, project)
+  local rows, err = fetch_all(project or key:match("^(.-)%-%d+$"), "key = " .. key)
+  if not rows then return nil, err end
+  if not rows[1] then return nil, "not found" end
+  return rows[1]
+end
+
 -- every user string that lands inside jql goes through here: an embedded quote
 -- otherwise yields invalid jql and a cryptic 400 from jira
 function M.jql_quote(s)

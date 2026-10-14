@@ -656,7 +656,8 @@ local TUI_FIXTURE = {
 -- the tokens, then nil once (non-interactive main loop quits), then errors so a modal or
 -- chord left waiting fails loudly instead of spinning forever.
 -- opts: issues (fixture rows), view, project, api (stub fns for jira_tui.api), load (fn override).
--- returns { ok, err, out = captured output, loads = loader calls, api = api call log }
+-- opts.sprint: stub fns for jira_tui.sprint.
+-- returns { ok, err, out = captured output, loads = loader calls, api / sprint = call logs }
 local function run_tui(keys, opts)
   opts = opts or {}
   local term = require("jira_tui.term")
@@ -680,6 +681,7 @@ local function run_tui(keys, opts)
     end,
   })
   local api_log, restore_api = stub(api, opts.api or {})
+  local sprint_log, restore_sprint = stub(require("jira_tui.sprint"), opts.sprint or {})
   local o_stderr = io.stderr
   io.stderr = { write = function() end }
   local ok_, err_ = tui.run({
@@ -696,8 +698,8 @@ local function run_tui(keys, opts)
     hidden_tabs = {},
   })
   io.stderr = o_stderr
-  restore_api(); restore_term()
-  return { ok = ok_, err = err_, out = table.concat(out), loads = loads, api = api_log }
+  restore_api(); restore_sprint(); restore_term()
+  return { ok = ok_, err = err_, out = table.concat(out), loads = loads, api = api_log, sprint = sprint_log }
 end
 
 do
@@ -733,12 +735,70 @@ do
   r = run_tui(keyseq("s", "j", "enter"), { api = {
     get_transitions = function() return { { id = "11", name = "To Do" }, { id = "21", name = "Start", to = { name = "In Progress" } } } end,
     transition_issue = function() return true end,
-  } })
+  }, sprint = { get_issue_row = function() return { key = "PE-1", summary = "alpha root", status = "In Progress" } end } })
   ok(r.ok, "harness: status flow ok (" .. tostring(r.err) .. ")")
   local tr = calls(r.api, "transition_issue")
   eq(#tr, 1, "s: one transition_issue call")
   eq(tr[1] and tr[1][2], "PE-1", "s: transition targets cursor row")
   eq(tr[1] and tr[1][3], "21", "s: transition id = picked item")
+  eq(#r.loads, 1, "s: no full reload after transition")
+  ok(r.out:find("PE-1 → In Progress", 1, true), "s: success message shown")
+end
+
+-- ---- row patch after mutations ----
+do
+  local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }
+  eq(model.upsert_row(raw, { key = "A-2", summary = "B" }), 2, "upsert replaces in place")
+  eq(raw[2].summary, "B", "upsert replaced row")
+  eq(#raw, 2, "upsert replace keeps length")
+  eq(model.upsert_row(raw, { key = "A-3", summary = "c" }), 3, "upsert appends new key")
+  eq(raw[3].key, "A-3", "appended row")
+
+  local api = require("jira_tui.api")
+  local log, restore = stub(api, { search_issues = function(jql)
+    if jql == "key = PE-9" then return { issues = {} } end
+    return { issues = { { key = "PE-7", fields = { summary = "s", status = { name = "Done" } } } } }
+  end })
+  local row = sprint.get_issue_row("PE-7")
+  eq(row and row.key, "PE-7", "get_issue_row maps the row")
+  eq(row and row.status, "Done", "get_issue_row maps status")
+  eq(log[1][2], "key = PE-7", "get_issue_row queries by key")
+  eq(log[1][6], "PE", "get_issue_row derives project from key")
+  local none, nerr = sprint.get_issue_row("PE-9")
+  ok(none == nil and nerr == "not found", "get_issue_row: missing key -> nil, not found")
+  restore()
+
+  -- assign patches one row, no view reload
+  local rowfn = function(key) return { key = key, summary = "alpha root", status = "To Do", assignee = "Zed" } end
+  local r = run_tui(keyseq("A"), {
+    api = { get_myself = function() return { accountId = "me1", displayName = "Zed" } end,
+      assign_issue = function() return true end },
+    sprint = { get_issue_row = rowfn },
+  })
+  ok(r.ok, "assign flow ok (" .. tostring(r.err) .. ")")
+  eq(#calls(r.sprint, "get_issue_row"), 1, "assign: one get_issue_row")
+  eq((calls(r.sprint, "get_issue_row")[1] or {})[2], "PE-1", "assign: refreshes the assigned key")
+  eq(#r.loads, 1, "assign: zero extra opts.load calls")
+  ok(r.out:find("Zed", 1, true), "assign: patched assignee drawn")
+
+  -- refresh failure keeps rows and says so instead of a bare success
+  r = run_tui(keyseq("A"), {
+    api = { get_myself = function() return { accountId = "me1" } end, assign_issue = function() return true end },
+    sprint = { get_issue_row = function() return nil, "boom" end },
+  })
+  ok(r.out:find("row refresh failed: boom", 1, true), "assign: refresh error surfaced")
+  ok(r.out:find("alpha root", 1, true), "assign: rows kept on refresh failure")
+
+  -- create appends the new row
+  r = run_tui(keyseq("c", "new thing", "ctrl-s"), {
+    api = { get_myself = function() return { accountId = "me1" } end,
+      create_issue = function() return { key = "PE-99" } end },
+    sprint = { get_issue_row = function(key) return { key = key, summary = "new thing", status = "To Do" } end },
+  })
+  ok(r.ok, "create flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 1, "create: no full reload")
+  ok(r.out:find("(5)", 1, true), "create: new row appended (count 5)")
+  ok(r.out:find("created PE-99", 1, true), "create: message names new key")
 end
 
 io.write(string.format("\n%d passed, %d failed\n", pass, fail))

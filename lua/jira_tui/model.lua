@@ -24,6 +24,15 @@ function M.build_issue_tree(issues)
   return roots
 end
 
+-- replace the row with row.key in place, else append. returns its index.
+function M.upsert_row(raw, row)
+  for i, r in ipairs(raw) do
+    if r.key == row.key then raw[i] = row; return i end
+  end
+  raw[#raw + 1] = row
+  return #raw
+end
+
 -- "2026-06-01T..." -> "2026-06-01"
 function M.short_date(iso)
   if type(iso) ~= "string" then return "" end
