@@ -607,5 +607,139 @@ do
   eq(ansi.width(ansi.cut("héllo wörld", 6)), 6, "cut counts multibyte as one cell")
 end
 
+-- ---- headless tui harness ----
+-- stub(mod, { name = fn }) swaps module functions and logs every call as { name, args... }.
+-- returns log, restore.
+local function stub(mod, fns)
+  local log, saved = {}, {}
+  for name, fn in pairs(fns) do
+    saved[name] = mod[name]
+    mod[name] = function(...)
+      log[#log + 1] = { name, ... }
+      return fn(...)
+    end
+  end
+  return log, function() for name, fn in pairs(saved) do mod[name] = fn end end
+end
+
+local function calls(log, name)
+  local out = {}
+  for _, c in ipairs(log) do if c[1] == name then out[#out + 1] = c end end
+  return out
+end
+
+-- key names pass through as tokens; any other string is typed one char at a time
+local KEY_NAMES = {}
+for k in ("enter esc tab bs del ctrl-s ctrl-c ctrl-d ctrl-u up down left right home end pgup pgdn wheelup wheeldown")
+  :gmatch("%S+") do KEY_NAMES[k] = true end
+local function keyseq(...)
+  local out = {}
+  for _, k in ipairs({ ... }) do
+    if KEY_NAMES[k] or #k == 1 then out[#out + 1] = k
+    else for ch in k:gmatch(".") do out[#out + 1] = ch end end
+  end
+  return out
+end
+
+local TUI_FIXTURE = {
+  { key = "PE-1", summary = "alpha root", status = "To Do", type = "Story", assignee = "Ann", priority = "High",
+    created = "2026-10-01T10:00:00.000+0000", status_category = "To Do" },
+  { key = "PE-2", summary = "beta parent", status = "In Progress", type = "Story", assignee = "Unassigned",
+    priority = "Medium", created = "2026-10-02T10:00:00.000+0000", status_category = "In Progress" },
+  { key = "PE-3", summary = "gamma child", status = "To Do", type = "Sub-task", assignee = "Bob", parent = "PE-2",
+    priority = "Low", created = "2026-10-03T10:00:00.000+0000", status_category = "To Do" },
+  { key = "PE-4", summary = "delta root", status = "Review", type = "Bug", assignee = "Ann", priority = "Low",
+    created = "2026-10-04T10:00:00.000+0000", status_category = "In Progress" },
+}
+
+-- run_tui(keys, opts): drive tui.run headless. keys = token list (keyseq). read_key yields
+-- the tokens, then nil once (non-interactive main loop quits), then errors so a modal or
+-- chord left waiting fails loudly instead of spinning forever.
+-- opts: issues (fixture rows), view, project, api (stub fns for jira_tui.api), load (fn override).
+-- returns { ok, err, out = captured output, loads = loader calls, api = api call log }
+local function run_tui(keys, opts)
+  opts = opts or {}
+  local term = require("jira_tui.term")
+  local api = require("jira_tui.api")
+  local tui = require("jira_tui.tui")
+  local issues = opts.issues or TUI_FIXTURE
+  local out, loads = {}, {}
+  local i, exhausted = 0, false
+  local _, restore_term = stub(term, {
+    raw_on = function() end, raw_off = function() end, enter = function() end, leave = function() end,
+    clear = function() end, moveto = function() end,
+    out = function(s) out[#out + 1] = s end,
+    size = function() return 30, 120 end,
+    isatty = function() return false end,
+    read_key = function()
+      i = i + 1
+      if keys[i] then return keys[i] end
+      if exhausted then error("feed exhausted") end
+      exhausted = true
+      return nil
+    end,
+  })
+  local api_log, restore_api = stub(api, opts.api or {})
+  local o_stderr = io.stderr
+  io.stderr = { write = function() end }
+  local ok_, err_ = tui.run({
+    load = function(view, filter, project)
+      loads[#loads + 1] = { view = view, filter = filter, project = project }
+      if opts.load then return opts.load(view, filter, project) end
+      local copy = {}
+      for n, r in ipairs(issues) do copy[n] = r end
+      return copy, nil, false
+    end,
+    project = opts.project or "PE",
+    initial_view = opts.view or "My Issues",
+    my_projects = {},
+    hidden_tabs = {},
+  })
+  io.stderr = o_stderr
+  restore_api(); restore_term()
+  return { ok = ok_, err = err_, out = table.concat(out), loads = loads, api = api_log }
+end
+
+do
+  local r = run_tui(keyseq())
+  ok(r.ok, "harness: empty feed exits cleanly (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 1, "harness: initial load once")
+  ok(r.out:find("alpha root", 1, true), "harness: board rows drawn")
+  ok(r.out:find("(4)", 1, true), "harness: title count = 4 issues")
+
+  r = run_tui(keyseq("/"))
+  ok(not r.ok and tostring(r.err):find("feed exhausted"), "harness: modal waiting on input fails loudly")
+
+  -- Enter on a leaf opens detail; q closes it
+  local issue = { key = "PE-1", fields = { summary = "alpha root", status = { name = "To Do" },
+    issuetype = { name = "Story" }, project = { key = "PE" } } }
+  r = run_tui(keyseq("enter", "q"), { api = {
+    get_issue = function() return issue end,
+    get_comments = function() return {} end,
+  } })
+  ok(r.ok, "harness: enter/q flow ok (" .. tostring(r.err) .. ")")
+  local gi = calls(r.api, "get_issue")
+  eq(#gi, 1, "enter opens detail: one get_issue")
+  eq(gi[1] and gi[1][2], "PE-1", "enter opens detail for the cursor row")
+  ok(r.out:find("PE-1  alpha root", 1, true), "detail popup title drawn")
+
+  -- / filter narrows the visible count
+  r = run_tui(keyseq("/", "delta", "enter"))
+  ok(r.ok, "harness: filter flow ok (" .. tostring(r.err) .. ")")
+  ok(r.out:find("(1)", 1, true), "filter narrows title count to 1")
+  eq(#r.loads, 1, "filter is client-side: no extra load")
+
+  -- s picks a transition and sends its id
+  r = run_tui(keyseq("s", "j", "enter"), { api = {
+    get_transitions = function() return { { id = "11", name = "To Do" }, { id = "21", name = "Start", to = { name = "In Progress" } } } end,
+    transition_issue = function() return true end,
+  } })
+  ok(r.ok, "harness: status flow ok (" .. tostring(r.err) .. ")")
+  local tr = calls(r.api, "transition_issue")
+  eq(#tr, 1, "s: one transition_issue call")
+  eq(tr[1] and tr[1][2], "PE-1", "s: transition targets cursor row")
+  eq(tr[1] and tr[1][3], "21", "s: transition id = picked item")
+end
+
 io.write(string.format("\n%d passed, %d failed\n", pass, fail))
 os.exit(fail == 0 and 0 or 1)

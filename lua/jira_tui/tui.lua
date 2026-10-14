@@ -540,6 +540,7 @@ function M.run(opts)
 
   term.leave(); term.raw_off()
   if not ok then io.stderr:write("jira-tui crashed: " .. tostring(err) .. "\n") end
+  return ok, err
 end
 
 return M
