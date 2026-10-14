@@ -66,7 +66,7 @@ local function curl_request(method, endpoint, data)
     return nil, cerr or "cannot write temp file"
   end
   -- luajit's pclose() reports success for any exit code, so echo $? and parse it from the tail
-  local pipe = io.popen("curl -K " .. q(cfgfile) .. ' 2>/dev/null; echo "__rc=$?"', "r")
+  local pipe = io.popen(M._curl .. " -K " .. q(cfgfile) .. ' 2>/dev/null; echo "__rc=$?"', "r")
   local out = pipe and pipe:read("*a") or ""
   if pipe then pipe:close() end
 
@@ -74,15 +74,20 @@ local function curl_request(method, endpoint, data)
   if datafile then os.remove(datafile) end
 
   local body, http, rc = out:match("^(.*)__http=(%d+)__rc=(%d+)%s*$")
-  rc, http = tonumber(rc), tonumber(http)
-  if not rc then return nil, "curl failed to run" end
+  return M.parse_response(body, tonumber(http), tonumber(rc))
+end
+
+M._curl = "curl"
+
+function M.parse_response(body, http, rc)
+  if not rc or not http then return nil, "curl failed to run" end
   if rc ~= 0 then
     local why = M.CURL_ERRORS[rc]
     return nil, "curl failed (exit " .. rc .. (why and ": " .. why or "") .. ")"
   end
 
   local result
-  if body ~= "" then
+  if body and body ~= "" then
     local ok, parsed = pcall(json.decode, body)
     if not ok then
       return nil, "failed to parse json: " .. tostring(parsed) .. " | resp: " .. body:sub(1, 200)
@@ -107,7 +112,73 @@ local function curl_request(method, endpoint, data)
   return result, nil
 end
 
-M.request = curl_request
+local function slurp(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local s = f:read("*a")
+  f:close()
+  return s
+end
+
+local function cleanup(h)
+  for _, k in ipairs({ "cfg", "data", "body", "code", "rc" }) do if h[k] then os.remove(h[k]) end end
+  if h.rc then os.remove(h.rc .. ".tmp") end
+end
+
+-- background curl. the subshell must not hold the popen pipe (all fds redirected) or the read
+-- of $! blocks until curl exits. it removes the -K file (token) itself before rc appears.
+function M.request_async(method, endpoint, data)
+  local env = config.options.jira
+  if env.base == "" or env.email == "" or env.token == "" then return nil, "missing jira config" end
+  local h = {}
+  if data then
+    local derr
+    h.data, derr = write_tmp(json.encode(data))
+    if not h.data then return nil, derr end
+  end
+  local cerr
+  h.cfg, cerr = write_tmp(table.concat(M._config_lines(env, method, endpoint, h.data), "\n") .. "\n")
+  if not h.cfg then cleanup({ data = h.data }); return nil, cerr end
+  h.body, h.code, h.rc = h.cfg .. ".body", h.cfg .. ".code", h.cfg .. ".rc"
+  local cmd = string.format(
+    "umask 077; ( %s -K %s -o %s > %s 2>/dev/null; r=$?; rm -f %s %s; echo $r > %s; mv %s %s ) </dev/null >/dev/null 2>&1 & echo $!",
+    M._curl, q(h.cfg), q(h.body), q(h.code), q(h.cfg), q(h.data or ""), q(h.rc .. ".tmp"), q(h.rc .. ".tmp"), q(h.rc))
+  local p = io.popen(cmd, "r")
+  h.pid = p and tonumber(p:read("*l") or "")
+  if p then p:close() end
+  if not h.pid then cleanup(h); return nil, "could not start curl" end
+  return h
+end
+
+-- false while curl runs; then true, result, err (same shape as a blocking request)
+function M.poll(h)
+  local rc = slurp(h.rc)
+  if not rc then return false end
+  local body = slurp(h.body) or ""
+  local http = (slurp(h.code) or ""):match("__http=(%d+)")
+  cleanup(h)
+  return true, M.parse_response(body, tonumber(http), tonumber(rc))
+end
+
+function M.cancel(h)
+  os.execute("pkill -P " .. h.pid .. " >/dev/null 2>&1; kill " .. h.pid .. " >/dev/null 2>&1")
+  cleanup(h)
+end
+
+-- a request made inside a load coroutine (registered here) runs in the background and yields
+-- its handle until done; anywhere else it blocks
+M._async = setmetatable({}, { __mode = "k" })
+function M.request(method, endpoint, data)
+  local co = coroutine.running()
+  if not (co and M._async[co]) then return curl_request(method, endpoint, data) end
+  local h, err = M.request_async(method, endpoint, data)
+  if not h then return nil, err end
+  while true do
+    local done, res, perr = M.poll(h)
+    if done then return res, perr end
+    coroutine.yield(h)
+  end
+end
 
 function M.row_fields(project_key)
   return {
@@ -119,7 +190,7 @@ end
 
 function M.search_issues(jql, page_token, max_results, fields, project_key)
   fields = fields or M.row_fields(project_key)
-  return curl_request("POST", "/rest/api/3/search/jql", {
+  return M.request("POST", "/rest/api/3/search/jql", {
     jql = jql,
     fields = fields,
     nextPageToken = page_token or "",
@@ -133,13 +204,13 @@ function M.get_issue(issue_key, fields)
 end
 
 function M.get_transitions(issue_key)
-  local result, err = curl_request("GET", "/rest/api/3/issue/" .. issue_key .. "/transitions", nil)
+  local result, err = M.request("GET", "/rest/api/3/issue/" .. issue_key .. "/transitions", nil)
   if err or type(result) ~= "table" then return nil, err or "no transitions" end
   return result.transitions or {}, nil
 end
 
 function M.transition_issue(issue_key, transition_id)
-  return curl_request("POST", "/rest/api/3/issue/" .. issue_key .. "/transitions",
+  return M.request("POST", "/rest/api/3/issue/" .. issue_key .. "/transitions",
     { transition = { id = transition_id } })
 end
 
@@ -154,7 +225,7 @@ function M.myself()
 end
 
 function M.get_comments(issue_key, max)
-  local result, err = curl_request("GET",
+  local result, err = M.request("GET",
     "/rest/api/3/issue/" .. issue_key .. "/comment?orderBy=-created&maxResults=" .. (max or 20), nil)
   if err or type(result) ~= "table" then return nil, err or "no comments" end
   return result.comments or {}, nil
@@ -178,7 +249,7 @@ function M.get_assignable(issue_key, query)
 end
 
 function M.assign_issue(issue_key, account_id)
-  return curl_request("PUT", "/rest/api/3/issue/" .. issue_key .. "/assignee", { accountId = account_id })
+  return M.request("PUT", "/rest/api/3/issue/" .. issue_key .. "/assignee", { accountId = account_id })
 end
 
 -- append markdown to an existing adf doc (mutates the passed doc's content,
@@ -194,7 +265,7 @@ function M.append_to_adf(existing_adf, text)
 end
 
 function M.update_issue(issue_key, fields)
-  return curl_request("PUT", "/rest/api/3/issue/" .. issue_key, { fields = fields })
+  return M.request("PUT", "/rest/api/3/issue/" .. issue_key, { fields = fields })
 end
 
 M._priorities = nil

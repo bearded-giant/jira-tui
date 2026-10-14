@@ -97,24 +97,56 @@ function M.run(opts)
   local function cache_key(view) return view .. "|" .. (st.project or "") end
 
   -- st.raw is the cache entry's table, so row patches land in the cache too
-  local function load_view(view, filter, force)
-    local keep = view == st.view and cur_node() or nil
+  local function show(job, entry, cached)
+    local keep = job.view == st.view and cur_node() or nil
     local old_scroll = st.scroll
-    local entry = st.cache[cache_key(view)]
-    st.cached = not force and model.cache_fresh(entry, opts.cache_ttl, os.time()) and entry or nil
-    if not st.cached then
-      st.loading = "loading " .. render.view_label(view) .. "…"
-      if draw then draw() end
-      local issues, err, truncated = opts.load(view, nil, st.project)
-      st.loading = nil
-      if err then st.message = err; return false, err end
-      entry = { raw = issues or {}, truncated = truncated, at = os.time() }
-      st.cache[cache_key(view)] = entry
-    end
-    st.view, st.filter, st.raw, st.truncated = view, filter, entry.raw, entry.truncated
+    st.cached = cached and entry or nil
+    st.view, st.filter, st.raw, st.truncated = job.view, job.filter, entry.raw, entry.truncated
     st.cursor, st.scroll, st.message = 1, 0, nil
     if rebuild(keep and keep.key) then st.scroll = old_scroll end -- draw() clamps if it no longer fits
-    if persist then persist.remember(view, st.project) end
+    if persist then persist.remember(job.view, st.project) end
+  end
+
+  local function finish(job, issues, err, truncated)
+    st.loading = nil
+    if err then st.message = err; return false, err end
+    local entry = { raw = issues or {}, truncated = truncated, at = os.time() }
+    st.cache[job.ckey] = entry
+    show(job, entry)
+    return true
+  end
+
+  local function cancel_job()
+    if st.job and type(st.job.h) == "table" then api.cancel(st.job.h) end
+    st.job, st.loading = nil, nil
+  end
+
+  local function pump()
+    local job = st.job
+    if not job then return end
+    local res = { coroutine.resume(job.co) }
+    if coroutine.status(job.co) ~= "dead" then job.h = res[2]; return end
+    st.job = nil
+    if not res[1] then st.loading = nil; st.message = "load failed: " .. tostring(res[2]); return end
+    finish(job, res[2], res[3], res[4])
+  end
+
+  -- loads run in a coroutine so the board stays live; a newer load cancels the older one.
+  -- sync (the jql editor) blocks instead, because it needs the outcome to decide whether to reopen.
+  local function load_view(view, filter, force, sync)
+    cancel_job()
+    local job = { view = view, filter = filter, ckey = cache_key(view), project = st.project }
+    local entry = st.cache[job.ckey]
+    if not force and model.cache_fresh(entry, opts.cache_ttl, os.time()) then show(job, entry, true); return true end
+    st.loading = "loading " .. render.view_label(view) .. "…"
+    if sync then
+      if draw then draw() end
+      return finish(job, opts.load(view, nil, job.project))
+    end
+    job.co = coroutine.create(function() return opts.load(view, nil, job.project) end)
+    api._async[job.co] = true
+    st.job = job
+    pump()
     return true
   end
 
@@ -237,7 +269,7 @@ function M.run(opts)
   end
 
   local function run_jql(q)
-    local loaded, err = load_view(render.jql_view(q))
+    local loaded, err = load_view(render.jql_view(q), nil, false, true)
     if loaded and persist then persist.add_jql(q) end
     return loaded, err
   end
@@ -640,6 +672,7 @@ function M.run(opts)
 
     while true do
       local k = term.read_key()
+      if st.job then pump(); if k == nil then draw() end end
       if k == nil then
         -- no input: timeout on a tty (poll for resize), EOF on a pipe (quit)
         if not interactive then break end
@@ -759,6 +792,7 @@ function M.run(opts)
     end
   end)
 
+  cancel_job()
   term.leave(); term.raw_off()
   if not ok then io.stderr:write("jira-tui crashed: " .. tostring(err) .. "\n") end
   return ok, err

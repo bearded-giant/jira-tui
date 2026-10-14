@@ -1530,6 +1530,129 @@ do
   ok(r.out:find("not an issue key or url: nope", 1, true), "gi: bad ref message")
 end
 
+-- ---- async requests + non-blocking loads ----
+do
+  local api = require("jira_tui.api")
+  local config = require("jira_tui.config")
+
+  local r, e = api.parse_response('{"a":1}', 200, 0)
+  eq(r and r.a, 1, "parse_response: 200 json")
+  r, e = api.parse_response("", 204, 0)
+  ok(r == true and e == nil, "parse_response: 204 empty -> true")
+  r, e = api.parse_response('{"errorMessages":["nope"]}', 404, 0)
+  ok(r == nil and e == "HTTP 404: nope", "parse_response: jira error message")
+  r, e = api.parse_response("", 0, 28)
+  ok(r == nil and e:find("timed out", 1, true), "parse_response: curl exit code")
+  r, e = api.parse_response("<html>", 200, 0)
+  ok(r == nil and e:find("failed to parse json", 1, true), "parse_response: bad json")
+  r, e = api.parse_response(nil, nil, nil)
+  eq(e, "curl failed to run", "parse_response: no output")
+
+  -- real request_async / poll / cancel against a fake curl (no network)
+  local dir = os.tmpname(); os.remove(dir); os.execute("mkdir -p " .. dir)
+  local fake = dir .. "/fake_curl.sh"
+  local f = io.open(fake, "w")
+  f:write([[
+out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift;; esac; shift; done
+[ -n "$FAKE_SLEEP" ] && sleep "$FAKE_SLEEP"
+printf '{"ok":true}' > "$out"; printf '__http=200'
+]])
+  f:close()
+  local o_env, o_curl = config.options.jira, api._curl
+  config.options.jira = { base = "https://x", email = "e", token = "t" }
+  api._curl = "sh " .. fake
+  local h = assert(api.request_async("POST", "/x", { q = 1 }))
+  ok(h.pid and h.cfg and h.data, "request_async: handle with pid + temp files")
+  local done, res, rerr
+  for _ = 1, 100 do
+    done, res, rerr = api.poll(h)
+    if done then break end
+    os.execute("sleep 0.05")
+  end
+  ok(done and type(res) == "table" and res.ok == true and rerr == nil, "poll: parsed result once curl exits")
+  local left = 0
+  for _, path in ipairs({ h.cfg, h.data, h.body, h.code, h.rc, h.rc .. ".tmp" }) do
+    if io.open(path, "r") then left = left + 1 end
+  end
+  eq(left, 0, "poll: every temp file removed (incl. the -K file with the token)")
+  api._curl = "FAKE_SLEEP=5 sh " .. fake
+  h = assert(api.request_async("GET", "/slow"))
+  eq(api.poll(h), false, "poll: false while running")
+  api.cancel(h)
+  local alive = os.execute("kill -0 " .. h.pid .. " 2>/dev/null")
+  ok(not (alive == true or alive == 0), "cancel: subshell killed")
+  left = 0
+  for _, path in ipairs({ h.cfg, h.body, h.code, h.rc }) do if io.open(path, "r") then left = left + 1 end end
+  eq(left, 0, "cancel: temp files removed")
+  config.options.jira, api._curl = o_env, o_curl
+  os.remove(fake); os.remove(dir)
+
+  -- inside a registered coroutine, requests yield until poll lands; fetch_all pages through
+  local polls = {}
+  local log, restore = stub(api, {
+    request_async = function(_, _, data) return { token = data.nextPageToken } end,
+    poll = function(hh)
+      polls[hh] = (polls[hh] or 0) + 1
+      if polls[hh] < 3 then return false end
+      if hh.token == "" then return true, { issues = { { key = "A-1", fields = {} } }, nextPageToken = "p2" } end
+      return true, { issues = { { key = "A-2", fields = {} } } }
+    end,
+  })
+  local co = coroutine.create(function() return sprint.get_my_issues(nil, nil) end)
+  api._async[co] = true
+  local yields, out = 0, nil
+  while true do
+    local okc, a = coroutine.resume(co)
+    assert(okc, a)
+    if coroutine.status(co) == "dead" then out = a; break end
+    yields = yields + 1
+  end
+  eq(yields, 4, "async fetch_all: yields while each page is in flight (2 pages x 2)")
+  eq(out and #out, 2, "async fetch_all: both pages collected")
+  eq(#calls(log, "request_async"), 2, "async fetch_all: one request per page")
+  restore()
+  local plain_co = coroutine.create(function() return api.request("GET", "/x") end)
+  local o_req_async = api.request_async
+  api.request_async = function() error("must not go async outside registered coroutines") end
+  local okp = coroutine.resume(plain_co)
+  api.request_async = o_req_async
+  ok(okp, "unregistered coroutine keeps blocking requests")
+
+  -- tui: load in flight keeps the board live, result applies when it lands
+  local function slow_loader(n_yields, rows)
+    return function(view)
+      if view == "My Issues" and n_yields.first then n_yields.first = false; return TUI_FIXTURE, nil end
+      for i = 1, n_yields.n do coroutine.yield({ fake = i }) end
+      return rows, nil
+    end
+  end
+  local cancels = {}
+  local rt = run_tui(keyseq("r", "j", "j"), { load = slow_loader({ first = true, n = 2 }, { TUI_FIXTURE[4] }),
+    api = { cancel = function(hh) cancels[#cancels + 1] = hh end } })
+  ok(rt.ok, "async load flow ok (" .. tostring(rt.err) .. ")")
+  ok(rt.out:find("loading My Issues", 1, true), "async load: footer shows loading")
+  ok(rt.out:find(" 2/4 ", 1, true), "async load: j moved the cursor on old rows while loading")
+  ok(rt.out:find("(1)", 1, true), "async load: result applied when it lands")
+
+  -- switching views mid-load cancels the old job and never applies it
+  cancels = {}
+  local calls_n = 0
+  rt = run_tui(keyseq("r", "M"), {
+    load = function()
+      calls_n = calls_n + 1
+      if calls_n == 2 then
+        for i = 1, 5 do coroutine.yield({ fake = i }) end
+        return { { key = "ZZ-1", summary = "stale" } }, nil
+      end
+      return TUI_FIXTURE, nil
+    end,
+    api = { cancel = function(hh) cancels[#cancels + 1] = hh end },
+  })
+  ok(rt.ok, "async supersede flow ok (" .. tostring(rt.err) .. ")")
+  eq(#cancels, 1, "async supersede: in-flight handle cancelled")
+  ok(not rt.out:find("ZZ-1", 1, true), "async supersede: stale result never applied")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

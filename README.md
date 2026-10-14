@@ -153,7 +153,7 @@ Editing the full description opens it in your editor as markdown. Descriptions w
 lua/jira_tui/
   json.lua     vendored pure-lua json (zero deps)
   config.lua   env + ~/.config/jira-tui/config.lua
-  api.lua      curl REST client (synchronous, secrets via curl -K)
+  api.lua      curl REST client (blocking, or background for view loads; secrets via curl -K)
   sprint.lua   JQL queries + pagination + field mapping
   model.lua    tree build, time format, ADF -> markdown
   ansi.lua     SGR colors, utf8-aware width/truncate
