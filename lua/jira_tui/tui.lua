@@ -93,7 +93,7 @@ function M.run(opts)
     if draw then draw() end
     local issues, err, truncated = opts.load(view, nil, st.project)
     st.loading = nil
-    if err then st.message = err; return false end
+    if err then st.message = err; return false, err end
     st.view, st.filter, st.raw, st.truncated = view, filter, issues or {}, truncated
     st.cursor, st.scroll, st.message = 1, 0, nil
     if rebuild(keep and keep.key) then st.scroll = old_scroll end -- draw() clamps if it no longer fits
@@ -214,13 +214,21 @@ function M.run(opts)
   end
 
   local function run_jql(q)
-    if not q or q == "" then return end
-    if load_view(render.jql_view(q)) and persist then persist.add_jql(q) end
+    local loaded, err = load_view(render.jql_view(q))
+    if loaded and persist then persist.add_jql(q) end
+    return loaded, err
   end
 
-  local function edit_jql(title, q)
-    local rows, cols = term.size()
-    run_jql(ui.input(title, { value = q, multiline = true, width = cols, height = math.floor(rows / 2) }))
+  -- a failed query reopens the editor on the same text + error, so a typo never costs a retype
+  local function edit_jql(title, q, err)
+    while true do
+      local rows, cols = term.size()
+      q = ui.input(title, { value = q, multiline = true, width = cols, height = math.floor(rows / 2), error = err })
+      if not q or q == "" then return end
+      local loaded
+      loaded, err = run_jql(q)
+      if loaded then return end
+    end
   end
 
   local NEWQ = "＋ New query…"
@@ -235,7 +243,10 @@ function M.run(opts)
     if not choice then return end
     if choice == NEWQ then edit_jql("New JQL")
     elseif action == "edit" then edit_jql("Edit JQL", choice)
-    else run_jql(choice) end
+    else
+      local loaded, err = run_jql(choice)
+      if not loaded then edit_jql("Edit JQL", choice, err) end
+    end
   end
 
   local function open_browser(n)

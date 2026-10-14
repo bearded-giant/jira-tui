@@ -656,7 +656,7 @@ local TUI_FIXTURE = {
 -- the tokens, then nil once (non-interactive main loop quits), then errors so a modal or
 -- chord left waiting fails loudly instead of spinning forever.
 -- opts: issues (fixture rows), view, project, api (stub fns for jira_tui.api), load (fn override).
--- opts.sprint: stub fns for jira_tui.sprint.
+-- opts.sprint: stub fns for jira_tui.sprint. opts.state: persist fake (fake_state()).
 -- returns { ok, err, out = captured output, loads = loader calls, api / sprint = call logs }
 local function run_tui(keys, opts)
   opts = opts or {}
@@ -696,6 +696,7 @@ local function run_tui(keys, opts)
     initial_view = opts.view or "My Issues",
     my_projects = {},
     hidden_tabs = {},
+    state = opts.state,
   })
   io.stderr = o_stderr
   restore_api(); restore_sprint(); restore_term()
@@ -824,6 +825,49 @@ do
 
   r = run_tui(keyseq("enter"), { api = { get_issue = function() return nil, "http 404" end } })
   ok(r.out:find("PE-1: http 404", 1, true), "detail: fetch error shown")
+end
+
+-- ---- bad jql keeps the editor open ----
+do
+  local function fake_state(hist)
+    local added = {}
+    return { data = { jql_history = hist or {} }, remember = function() end, save = function() end,
+      add_jql = function(q) added[#added + 1] = q end }, added
+  end
+  local function jql_loader(fail_n)
+    local n = 0
+    return function(view)
+      if view:sub(1, 4) ~= "JQL:" then return {}, nil end
+      n = n + 1
+      if n <= fail_n then return nil, "Error in the JQL Query: bad" end
+      return { TUI_FIXTURE[1] }, nil
+    end
+  end
+
+  local stt, added = fake_state()
+  local r = run_tui(keyseq("g", "j", "project = X", "ctrl-s", "ctrl-s"), { load = jql_loader(1), state = stt })
+  ok(r.ok, "bad jql flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 3, "bad jql: initial + failed + retried load")
+  eq(r.loads[2].view, "JQL:project = X", "bad jql: first attempt")
+  eq(r.loads[3].view, r.loads[2].view, "bad jql: editor reopened prefilled with the same query")
+  ok(r.out:find("Error in the JQL Query: bad", 1, true), "bad jql: error shown in editor")
+  eq(#added, 1, "bad jql: history gets the query once")
+  eq(added[1], "project = X", "bad jql: history gets the working query")
+
+  stt, added = fake_state()
+  r = run_tui(keyseq("g", "j", "nope", "ctrl-s", "esc", "r"), { load = jql_loader(99), state = stt })
+  ok(r.ok, "bad jql esc flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 3, "bad jql: esc stops retrying (then r)")
+  eq(#added, 0, "bad jql: failed query not saved")
+  eq(r.loads[3].view, "My Issues", "bad jql: board view unchanged after esc")
+
+  -- picking a failing history entry lands in the editor on that query
+  stt, added = fake_state({ "status = Broken" })
+  r = run_tui(keyseq("J", "j", "enter", "ctrl-s"), { load = jql_loader(1), state = stt })
+  ok(r.ok, "history fail flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 3, "history fail: retry from editor")
+  eq(r.loads[3].view, "JQL:status = Broken", "history fail: editor prefilled with picked query")
+  ok(r.out:find("Edit JQL", 1, true), "history fail: editor opened")
 end
 
 -- ---- row patch after mutations ----

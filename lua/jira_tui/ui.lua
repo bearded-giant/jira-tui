@@ -59,7 +59,7 @@ local function span(s, a, b, p)
     .. ansi.fgtext(p < b and s:sub(n + 1, b) or "", C.text)
 end
 
--- text input modal. opts: {value, multiline, width, height}. returns string or nil (cancel).
+-- text input modal. opts: {value, multiline, width, height, error}. returns string or nil (cancel).
 -- multiline soft-wraps and scrolls; single-line scrolls horizontally.
 function M.input(title, opts)
   M._dirty = true
@@ -113,6 +113,10 @@ function M.input(title, opts)
       local a = cp_advance(buf, 0, scroll, #buf)
       term.moveto(top + 2, left + 3)
       term.out(ansi.fgtext("❯ ", C.sky, ansi.BOLD) .. span(buf, a, cp_advance(buf, a, tw, #buf), p))
+    end
+    if opts.error then
+      term.moveto(top + h - 2, left + 3)
+      term.out(ansi.fgtext(ansi.truncate((opts.error:gsub("%s+", " ")), w - 6), C.red))
     end
     term.moveto(top + h - 1, left + 3)
     term.out(ansi.fgtext(" " .. hint .. " ", C.overlay))
