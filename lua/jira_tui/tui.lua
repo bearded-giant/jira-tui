@@ -328,8 +328,13 @@ function M.run(opts)
       st.message = n.key .. ": " .. (uerr or "no assignable users"); return
     end
     draw()
-    local choice = ui.select("Assign: " .. n.key .. "  (" .. (n.assignee or "Unassigned") .. ")", users,
-      { format = function(u) return u.displayName or "?" end })
+    local choice = ui.select("Assign: " .. n.key .. "  (" .. (n.assignee or "Unassigned") .. ")", users, {
+      format = function(u) return u.displayName or "?" end,
+      on_filter = function(q)
+        local found = api.get_assignable(n.key, q)
+        return type(found) == "table" and found or {}
+      end,
+    })
     if choice then do_assign(n, choice.accountId, choice.displayName) end
   end
 

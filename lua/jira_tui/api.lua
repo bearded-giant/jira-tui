@@ -161,9 +161,15 @@ function M.add_comment(issue_key, adf)
   return M.request("POST", "/rest/api/3/issue/" .. issue_key .. "/comment", { body = adf })
 end
 
-function M.get_assignable(issue_key)
-  local result, err = curl_request("GET",
-    "/rest/api/3/user/assignable/search?issueKey=" .. issue_key .. "&maxResults=50", nil)
+function M.urlencode(s)
+  return (tostring(s):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+
+-- query searches every assignable user server-side; without it jira returns the first 50
+function M.get_assignable(issue_key, query)
+  local qs = (query and query ~= "") and ("&query=" .. M.urlencode(query)) or ""
+  local result, err = M.request("GET",
+    "/rest/api/3/user/assignable/search?issueKey=" .. issue_key .. "&maxResults=50" .. qs, nil)
   if err or type(result) ~= "table" then return nil, err or "no users" end
   return result, nil
 end

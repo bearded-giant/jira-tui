@@ -185,7 +185,9 @@ function M.edit_external(initial, ext)
 end
 
 -- select modal. items list, opts.format(item)->string, opts.keys {key = action}
--- + opts.hint for extra actions. returns item, index, action (nil on Enter) or nil.
+-- + opts.hint for extra actions. "/" filters by case-insensitive substring; with
+-- opts.on_filter(q) -> items, Enter in filter mode asks it for a new list instead.
+-- returns item, index, action (nil on Enter) or nil.
 function M.select(title, items, opts)
   M._dirty = true
   opts = opts or {}
@@ -197,6 +199,17 @@ function M.select(title, items, opts)
   local h = body + 3
   local top, left = center(rows, cols, w, h)
   local sel, scroll = 1, 0
+  local filter, filtering, shown = "", false, {}
+
+  local function refilter()
+    shown = {}
+    local q = filter:lower()
+    for i, it in ipairs(items) do
+      if q == "" or fmt(it):lower():find(q, 1, true) then shown[#shown + 1] = i end
+    end
+    sel, scroll = 1, 0
+  end
+  refilter()
 
   while true do
     if sel <= scroll then scroll = sel - 1 end
@@ -205,7 +218,7 @@ function M.select(title, items, opts)
     draw_box(top, left, w, h, title)
     for i = 1, body do
       local idx = scroll + i
-      local it = items[idx]
+      local it = shown[idx] and items[shown[idx]]
       term.moveto(top + i, left + 1)
       if it then
         local label = ansi.truncate(fmt(it), w - 4)
@@ -214,18 +227,44 @@ function M.select(title, items, opts)
         else
           term.out(" " .. ansi.fgtext(label, C.text))
         end
+      elseif i == 1 and #shown == 0 then
+        term.out(" " .. ansi.fgtext("(no matches)", C.overlay, ansi.ITALIC))
       end
     end
     term.moveto(top + h - 1, left + 2)
-    term.out(ansi.fgtext(string.format(" %d/%d   j/k move   Enter select   %sEsc cancel ",
-      sel, #items, opts.hint and opts.hint .. "   " or ""), C.overlay))
+    local foot
+    if filtering then
+      foot = string.format(" /%s   %d match%s   Enter %s   Esc clear ", filter, #shown, #shown == 1 and "" or "es",
+        opts.on_filter and "search" or "keep")
+    else
+      foot = string.format(" %s%d/%d   j/k move   Enter select   / filter   %sEsc cancel ",
+        filter ~= "" and ("/" .. filter .. "  ") or "", #shown > 0 and sel or 0, #shown,
+        opts.hint and opts.hint .. "   " or "")
+    end
+    term.out(ansi.fgtext(ansi.truncate(foot, w - 4), C.overlay))
 
     local k; repeat k = term.read_key() until k
-    if k == "esc" or k == "q" or k == "ctrl-c" then return nil end
-    if opts.keys and opts.keys[k] and items[sel] then return items[sel], sel, opts.keys[k] end
-    if (k == "j" or k == "down" or k == "wheeldown") and sel < #items then sel = sel + 1 end
-    if (k == "k" or k == "up" or k == "wheelup") and sel > 1 then sel = sel - 1 end
-    if k == "enter" and items[sel] then return items[sel], sel end
+    local cur = shown[sel]
+    if filtering then
+      if k == "ctrl-c" then return nil
+      elseif k == "esc" then filtering, filter = false, ""; refilter()
+      elseif k == "enter" then
+        filtering = false
+        if opts.on_filter then items = opts.on_filter(filter) or items; filter = "" end
+        refilter()
+      elseif k == "bs" then filter = filter:gsub("[^\128-\191][\128-\191]*$", ""); refilter()
+      elseif k == "down" and sel < #shown then sel = sel + 1
+      elseif k == "up" and sel > 1 then sel = sel - 1
+      elseif #k == 1 and k:byte() >= 32 then filter = filter .. k; refilter()
+      end
+    else
+      if k == "esc" or k == "q" or k == "ctrl-c" then return nil end
+      if k == "/" then filtering = true
+      elseif opts.keys and opts.keys[k] and cur then return items[cur], cur, opts.keys[k] end
+      if (k == "j" or k == "down" or k == "wheeldown") and sel < #shown then sel = sel + 1 end
+      if (k == "k" or k == "up" or k == "wheelup") and sel > 1 then sel = sel - 1 end
+      if k == "enter" and cur then return items[cur], cur end
+    end
   end
 end
 
@@ -332,6 +371,7 @@ local HELP = {
   } },
   { "General", {
     { "r", "Refresh" }, { "H / ?", "Help (q / Esc closes it)" },
+    { "/ (picker)", "Filter the list; in the assign picker Enter searches all users" },
     { "q", "Back (closes popups, never the app)" }, { "Esc", "Quit" },
   } },
 }

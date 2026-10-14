@@ -108,7 +108,8 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `o` (in detail) | pick an attachment, download and open it |
 | `]` / `[` (in detail) | next / previous issue in board order |
 | `s` | change issue status |
-| `a` / `A` | assign (user picker) / assign to me |
+| `a` / `A` | assign (user picker, `/` searches every assignable user) / assign to me |
+| `/` (in any picker) | filter the list as you type; `Enter` keeps the filter, `Esc` clears it |
 | `C` | comment: opens `$VISUAL` / `$EDITOR` (falls back to `nvim`, then `vi`), posts what you write as markdown |
 | `b` / `gx` | open issue in browser |
 | `y` / `Y` | copy issue key / url |

@@ -1121,6 +1121,66 @@ do
   eq(#calls(r.api, "get_issue"), 2, "detail C: reloaded after comment")
 end
 
+-- ---- filterable picker + assignable search ----
+do
+  local term = require("jira_tui.term")
+  local ui = require("jira_tui.ui")
+  local api = require("jira_tui.api")
+  local function pick(keys, items, opts)
+    local i = 0
+    local _, restore = stub(term, { out = function() end, moveto = function() end, size = function() return 30, 120 end,
+      read_key = function() i = i + 1; if keys[i] then return keys[i] end; error("feed exhausted") end })
+    local res = { pcall(ui.select, "t", items, opts) }
+    restore()
+    local up = unpack or table.unpack
+    return up(res)
+  end
+  local fruit = { "apple", "Banana", "cherry", "blueberry" }
+  local okp, it, idx = pick(keyseq("/", "b", "enter", "enter"), fruit)
+  ok(okp, "select filter flow ok (" .. tostring(it) .. ")")
+  eq(it, "Banana", "select filter: case-insensitive substring, first match")
+  eq(idx, 2, "select filter: index into the original list")
+  _, it = pick(keyseq("/", "b", "enter", "j", "enter"), fruit)
+  eq(it, "blueberry", "select filter: j moves within matches")
+  _, it = pick(keyseq("/", "bx", "bs", "e", "enter", "enter"), fruit)
+  eq(it, "blueberry", "select filter: bs edits the filter")
+  _, it = pick(keyseq("/", "zzz", "esc", "j", "enter"), fruit)
+  eq(it, "Banana", "select filter: esc clears filter, picker stays open")
+  _, it = pick(keyseq("/", "q", "enter", "enter"), { "aq", "b" })
+  eq(it, "aq", "select filter: q types in filter mode")
+  _, it = pick(keyseq("/", "zzz", "enter", "enter", "esc"), fruit)
+  eq(it, nil, "select filter: enter on no matches selects nothing")
+  local queries = {}
+  _, it = pick(keyseq("/", "bry", "enter", "enter"), fruit, { on_filter = function(q)
+    queries[#queries + 1] = q; return { "Bryan G" } end })
+  eq(queries[1], "bry", "select on_filter gets the query on enter")
+  eq(it, "Bryan G", "select on_filter: new list replaces items")
+
+  eq(api.urlencode("a b&c=d/é"), "a%20b%26c%3Dd%2F%C3%A9", "urlencode")
+  eq(api.urlencode("bry.an-x_y~z"), "bry.an-x_y~z", "urlencode keeps unreserved")
+  local log, restore = stub(api, { request = function() return {} end })
+  api.get_assignable("PE-1", "bry g")
+  api.get_assignable("PE-1")
+  eq(log[1][3], "/rest/api/3/user/assignable/search?issueKey=PE-1&maxResults=50&query=bry%20g", "get_assignable query")
+  eq(log[2][3], "/rest/api/3/user/assignable/search?issueKey=PE-1&maxResults=50", "get_assignable no query")
+  restore()
+
+  local r = run_tui(keyseq("a", "/", "bry", "enter", "enter"), {
+    api = { get_assignable = function(_, q)
+        if q then return { { accountId = "b1", displayName = "Bryan G" } } end
+        return { { accountId = "a1", displayName = "Ann" } }
+      end,
+      assign_issue = function() return true end },
+    sprint = { get_issue_row = function(key) return { key = key, summary = "alpha root", status = "To Do" } end },
+  })
+  ok(r.ok, "assign search flow ok (" .. tostring(r.err) .. ")")
+  local ga = calls(r.api, "get_assignable")
+  eq(#ga, 2, "assign search: initial list + one search")
+  eq(ga[2] and ga[2][3], "bry", "assign search: server query passed")
+  local aa = calls(r.api, "assign_issue")
+  eq(aa[1] and aa[1][3], "b1", "assign search: picks the searched user")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }
