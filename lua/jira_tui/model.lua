@@ -198,12 +198,24 @@ function M.parse_create(text)
   return out
 end
 
--- client-side board filter: plain case-insensitive substring on summary or key
+-- client-side board filter. whitespace-separated tokens, all must hit (case-insensitive substring):
+-- @x assignee, s:x status, t:x type, p:x priority, l:x any label, anything else summary or key
+local FILTER_FIELDS = { s = "status", t = "type", p = "priority" }
 function M.matches(issue, filter)
   if not filter or filter == "" then return true end
-  local f = filter:lower()
-  return (issue.summary or ""):lower():find(f, 1, true) ~= nil
-    or (issue.key or ""):lower():find(f, 1, true) ~= nil
+  local function has(v, q) return type(v) == "string" and v:lower():find(q, 1, true) ~= nil end
+  for tok in filter:lower():gmatch("%S+") do
+    local pre, q = tok:match("^(%a):(.+)$")
+    local hit
+    if tok:sub(1, 1) == "@" and #tok > 1 then hit = has(issue.assignee, tok:sub(2))
+    elseif pre and FILTER_FIELDS[pre] then hit = has(issue[FILTER_FIELDS[pre]], q)
+    elseif pre == "l" then
+      hit = false
+      for _, l in ipairs(type(issue.labels) == "table" and issue.labels or {}) do hit = hit or has(l, q) end
+    else hit = has(issue.summary, tok) or has(issue.key, tok) end
+    if not hit then return false end
+  end
+  return true
 end
 
 -- "PE-1472", "Add rate limit" -> "pe-1472-add-rate-limit" (capped ~50, clean tail)

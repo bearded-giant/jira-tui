@@ -696,7 +696,7 @@ function M.run(opts)
       elseif k == "J" then pick_jql()
       elseif k == "H" or k == "?" then st.help = true; st.message = nil
       elseif k == "/" then
-        local f = ui.input("Filter (summary / key)", { value = st.filter or "", width = 50 })
+        local f = ui.input("Filter: words  @who  s:status  t:type  p:priority  l:label", { value = st.filter or "", width = 50 })
         if f ~= nil then st.filter = f ~= "" and f or nil; rebuild(n and n.key) end
       elseif k == "bs" then
         if st.filter then st.filter = nil; rebuild(n and n.key) end

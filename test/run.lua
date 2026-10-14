@@ -536,6 +536,22 @@ do
   ok(model.matches({ summary = "x", key = "K-1" }, ""), "empty filter matches all")
   ok(not model.matches({ summary = "abc", key = "K-1" }, "zzz"), "filter miss")
   ok(model.matches({ key = "K-1" }, "k-1"), "nil summary safe")
+  local iss = { key = "PE-9", summary = "Fix cache stampede", assignee = "Ann Lee", status = "In Progress",
+    type = "Bug", priority = "High", labels = { "perf", "backend" } }
+  ok(model.matches(iss, "@ann"), "filter @assignee")
+  ok(not model.matches(iss, "@bob"), "filter @assignee miss")
+  ok(model.matches(iss, "s:prog"), "filter s:status")
+  ok(model.matches(iss, "t:BUG"), "filter t:type case-insensitive")
+  ok(model.matches(iss, "p:hi"), "filter p:priority")
+  ok(model.matches(iss, "l:back"), "filter l:label any")
+  ok(not model.matches(iss, "l:front"), "filter l:label miss")
+  ok(model.matches(iss, "@ann s:prog cache"), "filter tokens AND-ed")
+  ok(not model.matches(iss, "@ann s:done cache"), "filter one token miss fails all")
+  ok(model.matches(iss, "cache fix"), "filter bare words any order")
+  ok(model.matches(iss, "pe-9 stampede"), "filter key + word")
+  ok(model.matches({ key = "X-1", summary = "see a:b" }, "a:b"), "filter unknown prefix = plain word")
+  ok(not model.matches({ key = "X-1", summary = "s" }, "l:x"), "filter l: without labels")
+  ok(not model.matches({ key = "X-1" }, "@x"), "filter @ without assignee")
 
   eq(model.branch_name("PE-1472", "Add rate limit"), "pe-1472-add-rate-limit", "branch name basic")
   eq(model.branch_name("REF-9", "Fix: weird (chars) & stuff!!"), "ref-9-fix-weird-chars-stuff", "branch name strips punctuation")

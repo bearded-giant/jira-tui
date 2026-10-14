@@ -103,7 +103,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `p` | set / change the project (for sprint + backlog) |
 | `J` | JQL picker (history, or new query; `e` edits the selected query) · `gj` new query |
 | `gs` | sort by column |
-| `/` | filter loaded rows by summary or key (instant, no refetch) · `BS` clear |
+| `/` | filter loaded rows (instant, no refetch) · `BS` clear |
 | `x` | show / hide resolved |
 | `K` / `m` | issue detail with comments / raw markdown |
 | `e` | edit issue: summary, description (in your editor), append to description, priority, points, labels, parent, or status |
@@ -145,7 +145,7 @@ If the create fails (a typo in a field line, or Jira rejects it), the next `c` r
 
 Editing the full description opens it in your editor as markdown. Descriptions with things markdown can't carry back (tables, images, mentions, panels, colored text, nested lists and so on) are refused rather than silently flattened; use "Append description" on those. Points go to the project's `story_point_field`, so set that in `projects` if your Jira uses a different custom field than the default.
 
-`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, `L` jumps to anything in the Links section (parent, subtasks, linked issues) and `q` walks back through those jumps first, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C w y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
+`/` opens a prompt; submit empty to clear the filter. Every word has to match. Plain words look at the summary and key; `@ann` matches the assignee, `s:review` the status, `t:bug` the type, `p:high` the priority and `l:perf` any label, all as case-insensitive substrings. So `@ann s:prog cache` is Ann's in-progress issues mentioning cache. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, `L` jumps to anything in the Links section (parent, subtasks, linked issues) and `q` walks back through those jumps first, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C w y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
 
 ## Layout
 
