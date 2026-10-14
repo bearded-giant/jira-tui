@@ -186,6 +186,7 @@ function M.run(opts)
     local top = math.max(1, math.floor((rows - bh) / 2))
     local left = math.max(1, math.floor((cols - bw) / 2))
     local iw = bw - 2
+    st.body_screen = { first = top + 5, last = top + bh - 3 }
     local sky = ansi.fgtext("│", C.sky)
     local function interior(content) return sky .. ansi.fitline(content, iw) .. sky end
 
@@ -734,6 +735,12 @@ function M.run(opts)
       elseif k == "k" or k == "up" then st.cursor = step(st.cursor, -1)
       elseif k == "wheeldown" then for _ = 1, 3 do st.cursor = step(st.cursor, 1) end
       elseif k == "wheelup" then for _ = 1, 3 do st.cursor = step(st.cursor, -1) end
+      elseif k == "click" then
+        local b, m = st.body_screen, term.mouse
+        if b and m and not st.help and m.row >= b.first and m.row <= b.last then
+          local e = st.flat[st.scroll + m.row - b.first + 1]
+          if e and not e.spacer then st.cursor = st.scroll + m.row - b.first + 1 end
+        end
       elseif k == "G" then st.cursor = step(#st.flat + 1, -1)
       elseif k == " " or k == "tab" or k == "o" then toggle_expand(n)
       elseif k == "ctrl-d" or k == "pgdn" then

@@ -92,7 +92,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` (or arrows, mouse wheel) | move cursor |
+| `j` / `k` (or arrows, mouse wheel) | move cursor; clicking a row selects it |
 | `gg` / `G` | top / bottom |
 | `gi` | go to an issue by key or pasted browse url; opens its detail without touching the board |
 | `enter` | open issue detail (expands the node if it has subtasks) |

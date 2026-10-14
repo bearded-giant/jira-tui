@@ -476,7 +476,11 @@ do
   local function after(s) feed(s); local first = term.read_key(); return first, term.read_key() end
   local f, n = after("\27OPa"); eq(f, nil, "F1 (ss3) swallowed"); eq(n, "a", "byte after F1 intact")
   f, n = after("\27[15~a"); eq(f, nil, "F5 (csi ~) swallowed"); eq(n, "a", "byte after F5 intact")
-  f, n = after("\27[<0;10;5Ma"); eq(f, nil, "mouse click swallowed"); eq(n, "a", "byte after click intact")
+  f, n = after("\27[<0;10;5Ma"); eq(f, "click", "left press -> click"); eq(n, "a", "byte after click intact")
+  eq(term.mouse and term.mouse.row, 5, "click row"); eq(term.mouse and term.mouse.col, 10, "click col")
+  f, n = after("\27[<0;10;5ma"); eq(f, nil, "left release swallowed"); eq(n, "a", "byte after release intact")
+  f, n = after("\27[<2;10;5Ma"); eq(f, nil, "right press swallowed"); eq(n, "a", "byte after right press intact")
+  f, n = after("\27[<32;10;5Ma"); eq(f, nil, "drag swallowed"); eq(n, "a", "byte after drag intact")
   f, n = after("\27xa"); eq(f, nil, "alt+x swallowed"); eq(n, "a", "byte after alt+x intact")
   f, n = after("\27[Mabca"); eq(f, nil, "x10 mouse swallowed"); eq(n, "a", "x10 3 trailing bytes eaten")
   eq(keys("\27[A\27[B"), "up,down", "two sequences back to back")
@@ -680,7 +684,7 @@ local TUI_FIXTURE = {
 -- opts.sprint / opts.ui: stub fns for jira_tui.sprint / jira_tui.ui. opts.state: persist fake (fake_state()).
 -- opts.queries / opts.hidden_tabs / opts.cache_ttl / opts.refresh_interval / opts.clock: as passed by init.
 -- opts.tty: read_key acts like a tty -- "tick" tokens are idle timeouts, function tokens run then
--- tick, and the feed ends with ctrl-c instead of EOF.
+-- tick, and the feed ends with ctrl-c instead of EOF. { "click", row = r } clicks screen row r.
 -- returns { ok, err, out = captured output, loads = loader calls, api / sprint = call logs }
 local function run_tui(keys, opts)
   opts = opts or {}
@@ -700,6 +704,7 @@ local function run_tui(keys, opts)
       i = i + 1
       local tok = keys[i]
       if type(tok) == "function" then tok(); return nil end
+      if type(tok) == "table" then term.mouse = { row = tok.row, col = tok.col or 1 }; return tok[1] end
       if tok == "tick" then return nil end
       if tok then return tok end
       if exhausted then error("feed exhausted") end
@@ -1737,6 +1742,23 @@ do
   eq(#r.loads, 3, "esc: cancel then arm, app still running")
   r = run_tui(keyseq("ctrl-c", "r"))
   eq(#r.loads, 1, "ctrl-c: instant quit")
+end
+
+-- ---- mouse click ----
+do
+  -- 30x120 harness: board top = 1, body starts on screen row 6. flat: PE-1, spacer, PE-2, PE-3, spacer, PE-4
+  local tr = { get_transitions = function() return { { id = "1", name = "Go" } } end, transition_issue = function() return true end }
+  local row = { get_issue_row = function(key) return { key = key, summary = "x", status = "To Do" } end }
+  local function target(click_row)
+    local r = run_tui({ { "click", row = click_row }, "s", "enter" }, { api = tr, sprint = row })
+    return (calls(r.api, "transition_issue")[1] or {})[2]
+  end
+  eq(target(11), "PE-4", "click selects the clicked row")
+  eq(target(9), "PE-3", "click selects a child row")
+  eq(target(7), "PE-1", "click on a spacer leaves the cursor")
+  eq(target(3), "PE-1", "click on the tab bar leaves the cursor")
+  eq(target(25), "PE-1", "click below the rows leaves the cursor")
+  require("jira_tui.term").mouse = nil
 end
 
 -- ---- row patch after mutations ----

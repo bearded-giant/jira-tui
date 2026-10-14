@@ -58,9 +58,11 @@ local function read_csi()
     local b = ch:byte()
     if b >= 0x40 and b <= 0x7E then
       if params:sub(1, 1) == "<" and (ch == "M" or ch == "m") then -- SGR mouse \27[<b;x;yM
-        local btn = tonumber(params:match("^<(%d+)"))
+        local btn, x, y = params:match("^<(%d+);(%d+);(%d+)")
+        btn = tonumber(btn)
         if btn == 64 then return "wheelup" end
         if btn == 65 then return "wheeldown" end
+        if btn == 0 and ch == "M" then M.mouse = { row = tonumber(y), col = tonumber(x) }; return "click" end
         return nil
       end
       if ch == "M" and params == "" then M.read(3); return nil end -- x10 mouse: 3 trailing bytes
