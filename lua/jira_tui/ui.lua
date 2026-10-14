@@ -291,6 +291,19 @@ function M.detail(title, text, opts)
   end
   local lines, alt_shown = build(text), false
   local scroll, note = 0, nil
+  local query, matches, mi = nil, {}, 0
+  local function find_matches()
+    matches = {}
+    if not query then return end
+    for i, l in ipairs(lines) do
+      if ansi.strip(l):lower():find(query, 1, true) then matches[#matches + 1] = i end
+    end
+    mi = math.min(math.max(mi, 1), #matches)
+  end
+  local function goto_match(i)
+    mi = i
+    scroll = math.min(matches[i] - 1, math.max(0, #lines - body))
+  end
   while true do
     draw_box(top, left, w, h, title)
     for i = 1, body do
@@ -302,9 +315,10 @@ function M.detail(title, text, opts)
     elseif scroll <= 0 then pos = "top"
     elseif scroll >= #lines - body then pos = "bot"
     else pos = math.floor((scroll + body) / #lines * 100) .. "%" end
-    local hints = " j/k scroll"
+    local hints = " " .. (note and note .. "   " or "")
+      .. (#matches > 0 and ("match " .. mi .. "/" .. #matches .. "   ") or "") .. "j/k scroll"
       .. (opts.alt and "   c comments" or "") .. (opts.hint and "   " .. opts.hint or "")
-      .. "   q back   " .. (note and note .. "   " or "") .. pos .. " "
+      .. "   / search   q back   " .. pos .. " "
     term.moveto(top + h - 1, left + 2)
     term.out(ansi.fgtext(ansi.truncate(hints, w - 4), C.overlay))
     local k; repeat k = term.read_key() until k
@@ -320,6 +334,25 @@ function M.detail(title, text, opts)
       alt_shown = not alt_shown
       lines = build(alt_shown and opts.alt or text)
       scroll = math.min(scroll, math.max(0, #lines - body))
+      find_matches()
+    end
+    if k == "/" then
+      local q = M.input("Search", { width = 50 })
+      M._dirty = true
+      if q and q ~= "" then
+        query, mi = q:lower(), 0
+        find_matches()
+        if #matches == 0 then
+          note, query = "no match: " .. q, nil
+        else
+          local first = 1
+          for i, ln in ipairs(matches) do if ln > scroll then first = i; break end end
+          goto_match(first)
+        end
+      end
+    end
+    if (k == "n" or k == "N") and #matches > 0 then
+      goto_match((mi - 1 + (k == "n" and 1 or -1)) % #matches + 1)
     end
     local act = opts.actions and opts.actions[k]
     if act then
@@ -335,6 +368,7 @@ function M.detail(title, text, opts)
           if not a then alt_shown = false end
           lines = build(alt_shown and a or t)
           scroll = math.min(scroll, math.max(0, #lines - body))
+          find_matches()
         end
       end
     end
@@ -360,6 +394,7 @@ local HELP = {
     { "c / o (detail)", "Expand comments / open attachment" },
     { "] / [ (detail)", "Next / prev issue in board order" },
     { "L (detail)", "Jump to parent / subtask / linked issue (q comes back)" },
+    { "/ n N (detail)", "Search the issue text, next / previous match" },
     { "in detail", "s a A e d C w y Y b act on the shown issue" }, { "s", "Change status" },
     { "e", "Edit summary, description, priority, points, labels, parent, status" },
     { "c / gc", "Create (type picker, $EDITOR template) / child of the row" },

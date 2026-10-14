@@ -1133,7 +1133,7 @@ do
   eq(#tr, 1, "detail s: one transition")
   eq(tr[1] and tr[1][2], "PE-1", "detail s: acts on shown issue")
   eq(#calls(r.api, "get_issue"), 2, "detail s: detail refetched after mutation")
-  ok(r.out:find("   PE-1 → In Progress   ", 1, true), "detail s: handler message shown as popup note")
+  ok(r.out:find(" PE-1 → In Progress   j/k scroll", 1, true), "detail s: handler message shown as popup note")
   ok(not r.out:find("moving PE-1", 1, true), "detail s: board footer not painted while popup is up")
 
   -- ] / [ walk board order (skipping spacers), q leaves cursor on the last viewed issue
@@ -1759,6 +1759,44 @@ do
   eq(target(3), "PE-1", "click on the tab bar leaves the cursor")
   eq(target(25), "PE-1", "click below the rows leaves the cursor")
   require("jira_tui.term").mouse = nil
+end
+
+-- ---- search inside detail ----
+do
+  local term = require("jira_tui.term")
+  local ui = require("jira_tui.ui")
+  local buf = {}
+  for i = 1, 100 do buf[i] = "line " .. i .. ((i == 40 or i == 80) and " has FOO here" or "") end
+  local text = table.concat(buf, "\n")
+  local function run(keys)
+    local i, row, at = 0, nil, {}
+    local out = {}
+    local _, restore = stub(term, {
+      size = function() return 30, 120 end,
+      moveto = function(r) row = r end,
+      out = function(x) out[#out + 1] = x; if row then at[row] = x end end,
+      read_key = function() i = i + 1; if keys[i] then return keys[i] end; error("feed exhausted") end,
+    })
+    local okd, derr = pcall(ui.detail, "T", text, {})
+    restore()
+    return okd, derr, at, table.concat(out)
+  end
+  -- 30 rows: popup top = 1, body rows on screen 2..27 (26 lines)
+  local okd, derr, at, out = run(keyseq("/", "foo", "enter", "q"))
+  ok(okd, "detail search ok (" .. tostring(derr) .. ")")
+  ok(ansi.strip(at[2] or ""):find("line 40 has FOO", 1, true), "detail /: scrolls the first match to the top")
+  ok(out:find("match 1/2", 1, true), "detail /: footer match count")
+  _, _, at, out = run(keyseq("/", "foo", "enter", "n", "q"))
+  ok(out:find("match 2/2", 1, true), "detail n: next match")
+  ok(ansi.strip(at[2] or ""):find("line 75", 1, true), "detail n: scroll clamps at the bottom")
+  _, _, at, out = run(keyseq("/", "foo", "enter", "n", "n", "q"))
+  ok(ansi.strip(at[2] or ""):find("line 40 has FOO", 1, true), "detail n: wraps to the first match")
+  _, _, at = run(keyseq("/", "foo", "enter", "N", "q"))
+  ok(ansi.strip(at[2] or ""):find("line 75", 1, true), "detail N: wraps backwards to the last match")
+  _, _, at, out = run(keyseq("G", "/", "foo", "enter", "q"))
+  ok(out:find("match 2/2", 1, true), "detail /: starts from the current scroll position")
+  _, _, _, out = run(keyseq("/", "zzz", "enter", "n", "q"))
+  ok(out:find("no match: zzz", 1, true), "detail /: no match note")
 end
 
 -- ---- row patch after mutations ----

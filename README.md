@@ -116,6 +116,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `o` (in detail) | pick an attachment, download and open it |
 | `]` / `[` (in detail) | next / previous issue in board order |
 | `L` (in detail) | jump to the parent, a subtask or a linked issue; `q` walks back |
+| `/` `n` `N` (in detail) | search the issue text; next / previous match (wraps) |
 | `s` | change issue status |
 | `a` / `A` | assign (user picker, `/` searches every assignable user) / assign to me |
 | `/` (in any picker) | filter the list as you type; `Enter` keeps the filter, `Esc` clears it |
