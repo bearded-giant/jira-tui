@@ -364,7 +364,7 @@ local HELP = {
     { "c / o (detail)", "Expand comments / open attachment" },
     { "] / [ (detail)", "Next / prev issue in board order" },
     { "in detail", "s a A e d C y Y b act on the shown issue" }, { "s", "Change status" },
-    { "e", "Edit (summary / append description / status)" },
+    { "e", "Edit summary, description, priority, points, labels, parent, status" },
     { "c / gc", "Create (type picker, $EDITOR template) / child of the row" },
     { "d", "Close (first done-ish transition)" },
     { "a / A", "Assign (picker) / assign to me" }, { "C", "Comment ($EDITOR, markdown)" }, { "b / gx", "Open in browser" },

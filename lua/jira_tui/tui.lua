@@ -391,31 +391,83 @@ function M.run(opts)
     refresh_row(n.key, n.key .. " → " .. (type(pick.to) == "table" and pick.to.name or pick.name))
   end
 
-  local function edit_issue(n)
-    if not n then return end
-    local choice = ui.select("Edit: " .. n.key, { "Summary", "Append description", "Change status" })
-    if not choice then return end
-    if choice == "Change status" then return change_status(n) end
-    if choice == "Summary" then
-      local s = ui.input("Summary: " .. n.key, { value = n.summary or "", width = 76 })
-      if not s or s == "" then return end
-      st.message = "updating " .. n.key .. "…"; draw()
-      local _, uerr = api.update_issue(n.key, { summary = s })
-      if uerr then st.message = n.key .. ": " .. uerr; return end
-      refresh_row(n.key, n.key .. " summary updated")
-      return
-    end
-    local txt = ui.input("Append description: " .. n.key, { multiline = true })
-    if not txt or txt == "" then return end
+  local function update_fields(n, fields, what)
+    st.message = "updating " .. n.key .. "…"; draw()
+    local _, uerr = api.update_issue(n.key, fields)
+    if uerr then st.message = n.key .. ": " .. uerr; return end
+    refresh_row(n.key, n.key .. " " .. what .. " updated")
+  end
+
+  local function current_description(n)
     st.message = "loading " .. n.key .. "…"; draw()
-    local issue, ierr = api.get_issue(n.key)
+    local issue, ierr = api.get_issue(n.key, { "description" })
+    st.message = nil
     if ierr or type(issue) ~= "table" or type(issue.fields) ~= "table" then
       st.message = n.key .. ": " .. (ierr or "unexpected response"); return
     end
-    st.message = "updating " .. n.key .. "…"; draw()
-    local _, uerr = api.update_issue(n.key, { description = api.append_to_adf(issue.fields.description, txt) })
-    if uerr then st.message = n.key .. ": " .. uerr; return end
-    refresh_row(n.key, n.key .. " description updated")
+    return issue.fields.description or false
+  end
+
+  local EDITS = {
+    { "Summary", function(n)
+      local s = ui.input("Summary: " .. n.key, { value = n.summary or "", width = 76 })
+      if s and s ~= "" and s ~= n.summary then update_fields(n, { summary = s }, "summary") end
+    end },
+    { "Description", function(n)
+      local adf = current_description(n)
+      if adf == nil then return end
+      if model.adf_lossy(adf) then
+        st.message = n.key .. ": description has content markdown can't keep (tables, media, mentions…); use Append"
+        return
+      end
+      local txt = ui.edit_external(adf and (model.adf_to_markdown(adf):gsub("%s+$", "")) or "", ".md")
+      if not txt then st.message = n.key .. ": description unchanged"; return end
+      update_fields(n, { description = md.to_adf(txt) }, "description")
+    end },
+    { "Append description", function(n)
+      local txt = ui.input("Append description: " .. n.key, { multiline = true })
+      if not txt or txt == "" then return end
+      local adf = current_description(n)
+      if adf == nil then return end
+      update_fields(n, { description = api.append_to_adf(adf or nil, txt) }, "description")
+    end },
+    { "Priority", function(n)
+      st.message = "loading priorities…"; draw()
+      local ps, perr = api.get_priorities()
+      st.message = nil
+      if not ps then st.message = "priorities: " .. perr; return end
+      draw()
+      local p = ui.select("Priority: " .. n.key .. "  (" .. (n.priority or "?") .. ")", ps,
+        { format = function(x) return x.name or "?" end })
+      if p then update_fields(n, { priority = { id = p.id } }, "priority") end
+    end },
+    { "Points", function(n)
+      local s = ui.input("Points: " .. n.key, { value = n.story_points and tostring(n.story_points) or "", width = 40 })
+      if not s or s == "" then return end
+      local pts, perr = model.parse_points(s)
+      if not pts then st.message = perr; return end
+      local spf = config.get_project_config(n.key:match("^(.-)%-%d+$")).story_point_field
+      update_fields(n, { [spf] = pts }, "points")
+    end },
+    { "Labels", function(n)
+      local cur = type(n.labels) == "table" and table.concat(n.labels, ", ") or ""
+      local s = ui.input("Labels: " .. n.key .. "  (comma or space separated)", { value = cur, width = 76 })
+      if s and s ~= cur then update_fields(n, { labels = model.split_labels(s) }, "labels") end
+    end },
+    { "Parent", function(n)
+      local s = ui.input("Parent key: " .. n.key, { value = n.parent or "", width = 40 })
+      if not s or s == "" then return end
+      local key = model.valid_key(s)
+      if not key then st.message = "not an issue key: " .. s; return end
+      if key ~= n.parent then update_fields(n, { parent = { key = key } }, "parent") end
+    end },
+    { "Change status", function(n) change_status(n) end },
+  }
+
+  local function edit_issue(n)
+    if not n then return end
+    local choice = ui.select("Edit: " .. n.key, EDITS, { format = function(e) return e[1] end })
+    if choice then choice[2](n) end
   end
 
   local function comment_on(n)

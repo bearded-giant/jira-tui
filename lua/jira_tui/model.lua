@@ -92,6 +92,38 @@ end
 
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
+function M.parse_points(s)
+  local n = tonumber(s)
+  if not n or n < 0 then return nil, "points must be a number >= 0" end
+  return n
+end
+
+function M.valid_key(s)
+  local k = (s or ""):gsub("^%s+", ""):gsub("%s+$", ""):upper()
+  return k:match("^%u[%u%d_]*%-%d+$") and k or nil
+end
+
+-- true when markdown can't carry this doc through an edit (adf -> markdown -> adf) unchanged.
+-- whitelist of what md.to_adf rebuilds, so unknown node types count as lossy too.
+local SAFE_NODES = { doc = true, paragraph = true, text = true, hardBreak = true, heading = true, bulletList = true,
+  orderedList = true, listItem = true, codeBlock = true, blockquote = true, rule = true }
+local SAFE_MARKS = { strong = true, em = true, code = true, strike = true, link = true }
+function M.adf_lossy(node, in_list)
+  if type(node) ~= "table" then return false end
+  if not SAFE_NODES[node.type] then return true end
+  if node.marks and (#node.marks > 1 or not SAFE_MARKS[node.marks[1].type]) then return true end
+  local list = node.type == "bulletList" or node.type == "orderedList"
+  if list and in_list then return true end
+  if node.type == "listItem" then
+    local c = node.content or {}
+    if #c > 1 or (c[1] and c[1].type ~= "paragraph") then return true end
+  end
+  for _, child in ipairs(node.content or {}) do
+    if M.adf_lossy(child, in_list or list) then return true end
+  end
+  return false
+end
+
 M.CREATE_TEMPLATE = "\nlabels: \npoints: \npriority: \n---\n"
 local CREATE_FIELDS = { labels = true, points = true, priority = true }
 
@@ -113,8 +145,9 @@ function M.parse_create(text)
       if v ~= "" then
         if k == "labels" then out.labels = M.split_labels(v)
         elseif k == "points" then
-          out.points = tonumber(v)
-          if not out.points or out.points < 0 then return nil, "points must be a number" end
+          local perr
+          out.points, perr = M.parse_points(v)
+          if not out.points then return nil, perr end
         else out.priority = v end
       end
     end

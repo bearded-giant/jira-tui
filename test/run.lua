@@ -1327,6 +1327,79 @@ do
   render.COL.status = 14
 end
 
+-- ---- e menu field edits ----
+do
+  local api = require("jira_tui.api")
+  local config = require("jira_tui.config")
+  eq(model.parse_points("3"), 3, "parse_points int"); eq(model.parse_points("0.5"), 0.5, "parse_points float")
+  ok(model.parse_points("x") == nil and model.parse_points("-1") == nil, "parse_points rejects junk / negative")
+  eq(model.valid_key(" pe-12 "), "PE-12", "valid_key trims + uppercases")
+  eq(model.valid_key("PE12"), nil, "valid_key rejects no dash")
+  eq(model.valid_key("my_proj-1"), "MY_PROJ-1", "valid_key allows underscore")
+
+  local function doc(...) return { type = "doc", content = { ... } } end
+  local function p(...) return { type = "paragraph", content = { ... } } end
+  local function t(x, marks) return { type = "text", text = x, marks = marks } end
+  local function li(...) return { type = "listItem", content = { ... } } end
+  ok(not model.adf_lossy(doc(p(t("a", { { type = "strong" } })), { type = "bulletList", content = { li(p(t("x"))) } },
+    { type = "codeBlock", content = { t("c") } }, { type = "blockquote", content = { p(t("q")) } }, { type = "rule" })),
+    "adf_lossy: markdown-safe doc")
+  ok(not model.adf_lossy(nil) and not model.adf_lossy(false), "adf_lossy: no description")
+  local lossy = {
+    { "table", doc({ type = "table", content = {} }) },
+    { "mention", doc(p({ type = "mention", attrs = { text = "@a" } })) },
+    { "media", doc({ type = "mediaSingle", content = { { type = "media" } } }) },
+    { "panel", doc({ type = "panel", content = { p(t("x")) } }) },
+    { "expand", doc({ type = "expand", content = {} }) },
+    { "status", doc(p({ type = "status" })) }, { "emoji", doc(p({ type = "emoji" })) },
+    { "inlineCard", doc(p({ type = "inlineCard" })) }, { "taskList", doc({ type = "taskList", content = {} }) },
+    { "decisionList", doc({ type = "decisionList", content = {} }) },
+    { "nested list", doc({ type = "bulletList", content = { li(p(t("a")), { type = "bulletList", content = { li(p(t("b"))) } }) } }) },
+    { "two marks", doc(p(t("a", { { type = "strong" }, { type = "em" } }))) },
+    { "text color", doc(p(t("a", { { type = "textColor" } }))) },
+  }
+  for _, c in ipairs(lossy) do ok(model.adf_lossy(c[2]), "adf_lossy: " .. c[1]) end
+
+  local row = { get_issue_row = function(key) return { key = key, summary = "alpha root", status = "To Do" } end }
+  local function edit(keys, extra)
+    local a = { update_issue = function() return true end,
+      get_issue = function() return { key = "PE-1", fields = { description = doc(p(t("old"))) } } end,
+      get_priorities = function() return { { id = "1", name = "Highest" }, { id = "3", name = "Medium" } } end }
+    for k, v in pairs(extra and extra.api or {}) do a[k] = v end
+    local r = run_tui(keys, { api = a, sprint = row, ui = extra and extra.ui })
+    return r, calls(r.api, "update_issue")
+  end
+  local r, u = edit(keyseq("e", "enter", "X", "enter"))
+  ok(r.ok, "edit summary ok (" .. tostring(r.err) .. ")")
+  eq(u[1] and u[1][3].summary, "alpha rootX", "e summary")
+  r, u = edit(keyseq("e", "j", "enter"), { ui = { edit_external = function(initial)
+    return initial == "old" and "new **desc**" or nil end } })
+  eq(u[1] and u[1][3].description.content[1].content[2].marks[1].type, "strong", "e description: full edit via editor")
+  eq(calls(r.api, "get_issue")[1][3][1], "description", "e description: fetches description only")
+  r, u = edit(keyseq("e", "j", "enter"), { api = { get_issue = function()
+    return { key = "PE-1", fields = { description = doc({ type = "table", content = {} }) } } end } })
+  eq(#u, 0, "e description: lossy doc refused")
+  ok(r.out:find("use Append", 1, true), "e description: points to Append")
+  r, u = edit(keyseq("e", "j", "j", "enter", "more", "ctrl-s"))
+  eq(#u[1][3].description.content, 2, "e append: paragraph added to existing doc")
+  r, u = edit(keyseq("e", "j", "j", "j", "enter", "j", "enter"))
+  eq(u[1] and u[1][3].priority.id, "3", "e priority: picked id")
+  r, u = edit(keyseq("e", "j", "j", "j", "j", "enter", "5", "enter"))
+  eq(u[1] and u[1][3][config.get_project_config("PE").story_point_field], 5, "e points: project field")
+  r, u = edit(keyseq("e", "j", "j", "j", "j", "enter", "x", "enter"))
+  eq(#u, 0, "e points: junk rejected")
+  ok(r.out:find("points must be a number", 1, true), "e points: error shown")
+  r, u = edit(keyseq("e", "j", "j", "j", "j", "j", "enter", "a, b c", "enter"))
+  eq(u[1] and table.concat(u[1][3].labels, "|"), "a|b|c", "e labels: split")
+  r, u = edit(keyseq("e", "j", "j", "j", "j", "j", "j", "enter", "pe-2", "enter"))
+  eq(u[1] and u[1][3].parent.key, "PE-2", "e parent: key normalized")
+  r, u = edit(keyseq("e", "j", "j", "j", "j", "j", "j", "enter", "nope", "enter"))
+  eq(#u, 0, "e parent: invalid key rejected")
+  r, u = edit(keyseq("e", "j", "j", "j", "j", "j", "j", "j", "enter", "esc"), { api = {
+    get_transitions = function() return { { id = "1", name = "x" } } end } })
+  eq(#calls(r.api, "get_transitions"), 1, "e change status: opens transitions")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

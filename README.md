@@ -105,7 +105,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `/` | filter loaded rows by summary or key (instant, no refetch) · `BS` clear |
 | `x` | show / hide resolved |
 | `K` / `m` | issue detail with comments / raw markdown |
-| `e` | edit issue: summary, append description, or status |
+| `e` | edit issue: summary, description (in your editor), append to description, priority, points, labels, parent, or status |
 | `c` | create an issue in the current project: pick a type, then fill the template in your editor (assigned to you) |
 | `gc` | create a child of the selected row: sub-task under a story/task, standard type under an epic |
 | `d` | close issue via the first done-ish transition |
@@ -139,6 +139,8 @@ Exports hammer the DB when a big store runs them back to back.
 ```
 
 If the create fails (a typo in a field line, or Jira rejects it), the next `c` reopens your draft so nothing is lost.
+
+Editing the full description opens it in your editor as markdown. Descriptions with things markdown can't carry back (tables, images, mentions, panels, colored text, nested lists and so on) are refused rather than silently flattened; use "Append description" on those. Points go to the project's `story_point_field`, so set that in `projects` if your Jira uses a different custom field than the default.
 
 `/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
 

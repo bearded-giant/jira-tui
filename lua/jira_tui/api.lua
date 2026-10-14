@@ -198,6 +198,15 @@ function M.update_issue(issue_key, fields)
   return curl_request("PUT", "/rest/api/3/issue/" .. issue_key, { fields = fields })
 end
 
+M._priorities = nil
+function M.get_priorities()
+  if M._priorities then return M._priorities end
+  local res, err = M.request("GET", "/rest/api/3/priority/search", nil)
+  if err or type(res) ~= "table" or type(res.values) ~= "table" then return nil, err or "no priorities" end
+  M._priorities = res.values
+  return res.values
+end
+
 M._create_types = {}
 function M.get_create_types(project)
   if M._create_types[project] then return M._create_types[project] end
