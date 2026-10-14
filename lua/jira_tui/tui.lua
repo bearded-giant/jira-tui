@@ -30,13 +30,14 @@ local function sort_roots(roots, col, dir)
 end
 
 function M.run(opts)
+  local now = opts.clock or os.time
   local persist = opts.state
   local st = {
     view = opts.initial_view, project = opts.project, filter = nil,
     roots = {}, flat = {}, cursor = 1, scroll = 0, count = 0,
     sort_col = nil, sort_dir = nil, raw = {}, message = nil,
     hide_resolved = persist and persist.data.hide_resolved,
-    rows = 24, cols = 80, detail_cache = {}, cache = {},
+    rows = 24, cols = 80, detail_cache = {}, cache = {}, prefetched = {}, idle = 0,
   }
   if st.hide_resolved == nil then st.hide_resolved = true end
   st.my_projects = opts.my_projects or {}
@@ -97,10 +98,10 @@ function M.run(opts)
   local function cache_key(view) return view .. "|" .. (st.project or "") end
 
   -- st.raw is the cache entry's table, so row patches land in the cache too
-  local function show(job, entry, cached)
+  local function show(job, entry)
     local keep = job.view == st.view and cur_node() or nil
     local old_scroll = st.scroll
-    st.cached = cached and entry or nil
+    st.entry = entry
     st.view, st.filter, st.raw, st.truncated = job.view, job.filter, entry.raw, entry.truncated
     st.cursor, st.scroll, st.message = 1, 0, nil
     if rebuild(keep and keep.key) then st.scroll = old_scroll end -- draw() clamps if it no longer fits
@@ -110,7 +111,7 @@ function M.run(opts)
   local function finish(job, issues, err, truncated)
     st.loading = nil
     if err then st.message = err; return false, err end
-    local entry = { raw = issues or {}, truncated = truncated, at = os.time() }
+    local entry = { raw = issues or {}, truncated = truncated, at = now() }
     st.cache[job.ckey] = entry
     show(job, entry)
     return true
@@ -118,6 +119,7 @@ function M.run(opts)
 
   local function cancel_job()
     if st.job and type(st.job.h) == "table" then api.cancel(st.job.h) end
+    if st.job and st.job.kind == "detail" then st.prefetched[st.job.key] = nil end
     st.job, st.loading = nil, nil
   end
 
@@ -127,6 +129,7 @@ function M.run(opts)
     local res = { coroutine.resume(job.co) }
     if coroutine.status(job.co) ~= "dead" then job.h = res[2]; return end
     st.job = nil
+    if job.kind == "detail" then return end -- prefetch: fetch_detail filled the cache, or failed quietly
     if not res[1] then st.loading = nil; st.message = "load failed: " .. tostring(res[2]); return end
     finish(job, res[2], res[3], res[4])
   end
@@ -137,7 +140,7 @@ function M.run(opts)
     cancel_job()
     local job = { view = view, filter = filter, ckey = cache_key(view), project = st.project }
     local entry = st.cache[job.ckey]
-    if not force and model.cache_fresh(entry, opts.cache_ttl, os.time()) then show(job, entry, true); return true end
+    if not force and model.cache_fresh(entry, opts.cache_ttl, now()) then show(job, entry); return true end
     st.loading = "loading " .. render.view_label(view) .. "…"
     if sync then
       if draw then draw() end
@@ -153,7 +156,7 @@ function M.run(opts)
   -- after a mutation re-fetch just that row (~0.4s) instead of reloading the view (0.7-4s)
   -- only create appends: an issue opened from a link and then edited must not land on the board
   local function refresh_row(key, done_msg, append)
-    st.detail_cache[key] = nil
+    st.detail_cache[key], st.prefetched[key] = nil, nil
     local row, err = sprint.get_issue_row(key)
     if not row then
       st.message, st.message_ok = done_msg .. "; row refresh failed: " .. (err or "?"), false
@@ -224,7 +227,7 @@ function M.run(opts)
 
     local vtxt = " v" .. version .. " "
     local ltxt = st.loading and (" ● " .. st.loading .. " ")
-      or st.cached and (" cached " .. math.floor((os.time() - st.cached.at) / 60) .. "m ") or ""
+      or st.entry and (" updated " .. math.floor((now() - st.entry.at) / 60) .. "m ago ") or ""
     local ptxt = ""
     if not st.help and #st.flat > 0 then
       local cur, tot = 0, 0
@@ -664,6 +667,21 @@ function M.run(opts)
     end
   end
 
+  local function idle_work()
+    if st.job then return end
+    local every = opts.refresh_interval or 0
+    if every > 0 and st.entry and now() - st.entry.at >= every then load_view(st.view, st.filter, true); return end
+    local n = cur_node()
+    if st.idle >= 2 and n and not st.detail_cache[n.key] and not st.prefetched[n.key] then
+      st.prefetched[n.key] = true
+      local job = { kind = "detail", key = n.key }
+      job.co = coroutine.create(function() return fetch_detail(n.key) end)
+      api._async[job.co] = true
+      st.job = job
+      pump()
+    end
+  end
+
   local interactive = term.isatty()
   term.raw_on(); term.enter(); term.clear()
   local ok, err = pcall(function()
@@ -672,12 +690,17 @@ function M.run(opts)
 
     while true do
       local k = term.read_key()
-      if st.job then pump(); if k == nil then draw() end end
+      if k ~= nil then
+        st.idle = 0
+        if st.job and st.job.kind == "detail" then cancel_job() end
+      end
+      if st.job then pump() end
       if k == nil then
-        -- no input: timeout on a tty (poll for resize), EOF on a pipe (quit)
+        -- no input: timeout on a tty (idle work, resize, footer clock), EOF on a pipe (quit)
         if not interactive then break end
-        local r, c = term.size()
-        if r ~= st.rows or c ~= st.cols then draw() end
+        st.idle = st.idle + 1
+        idle_work()
+        draw()
       else
       local n = cur_node()
       st.message_ok = false
@@ -739,7 +762,7 @@ function M.run(opts)
         if n then yank(config.options.jira.base .. "/browse/" .. n.key, n.key .. " url") end
       elseif k == "a" then assign_picker(n)
       elseif k == "A" then assign_me(n)
-      elseif k == "r" then st.detail_cache = {}; load_view(st.view, st.filter, true)
+      elseif k == "r" then st.detail_cache, st.prefetched = {}, {}; load_view(st.view, st.filter, true)
       elseif k == "left" or k == "right" then
         local order = {}
         for _, tabdef in ipairs(st.tabs) do order[#order + 1] = tabdef.name end

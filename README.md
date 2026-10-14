@@ -43,6 +43,8 @@ return {
   },
   -- seconds a fetched view is reused when you switch back to its tab (0 = always refetch)
   cache_ttl = 300,
+  -- seconds of idling before the current view reloads itself (0 = never)
+  refresh_interval = 300,
   -- board columns, left to right
   columns = { "key", "summary", "assignee", "created", "age", "status" },
 }
@@ -50,7 +52,7 @@ return {
 
 `columns` picks from `key`, `summary`, `assignee`, `status`, `created`, `age` (time since created), `updated` (time since last update), `priority`, `points` and `labels`. `key` and `summary` are required. On a narrow terminal the optional ones (everything except key, summary, assignee and status) drop out right to left until the title has room, and `gs` sorts by any configured column. The status column sizes itself to the longest status in the loaded rows.
 
-Switching tabs reuses rows fetched within the last `cache_ttl` seconds, so flipping between views is instant; the footer says `cached Nm` when you're looking at cached rows, and `r` always refetches. Your own edits (status, assign, edit, close) patch the affected row in every cached view that already shows it; a new issue only lands in the view you created it from.
+Switching tabs reuses rows fetched within the last `cache_ttl` seconds, so flipping between views is instant; the footer says how long ago the rows you're looking at were fetched (`updated 3m ago`), and `r` always refetches. Leave the board idle and it reloads the current view every `refresh_interval` seconds, keeping your cursor and filter, and it quietly prefetches the detail of the row under the cursor so `enter` opens instantly. Your own edits (status, assign, edit, close) patch the affected row in every cached view that already shows it; a new issue only lands in the view you created it from.
 
 Each saved query becomes a tab you can jump to with a digit. `key` is optional and defaults to the query's position in the list, so the first one is `1`, the second `2`, and so on up to `9`. Names have to be unique and can't reuse a built-in tab name (My Issues, JQL, Active Sprint, Backlog, Help).
 

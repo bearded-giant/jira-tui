@@ -84,6 +84,7 @@ function M.main(argv)
     hidden_tabs = config.options.hidden_tabs,
     queries = config.options.queries,
     cache_ttl = config.options.cache_ttl,
+    refresh_interval = config.options.refresh_interval,
   })
   return 0
 end

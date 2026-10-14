@@ -12,6 +12,7 @@ M.options = {
   hidden_tabs = {}, -- e.g. { "Active Sprint", "Backlog" } to declutter
   queries = {},
   cache_ttl = 300, -- seconds a fetched view is reused on tab switch; 0 disables
+  refresh_interval = 300, -- seconds idle before the current view reloads itself; 0 disables
 }
 
 local BUILTIN_VIEWS = { ["My Issues"] = true, JQL = true, ["Active Sprint"] = true, Backlog = true, Help = true }
@@ -60,6 +61,7 @@ function M.load()
       M.options.queries = qs
       M.options.cache_ttl = tonumber(user.cache_ttl) or M.options.cache_ttl
       M.options.columns = user.columns
+      M.options.refresh_interval = tonumber(user.refresh_interval) or M.options.refresh_interval
     end
   end
 

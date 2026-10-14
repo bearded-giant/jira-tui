@@ -678,7 +678,9 @@ local TUI_FIXTURE = {
 -- chord left waiting fails loudly instead of spinning forever.
 -- opts: issues (fixture rows), view, project, api (stub fns for jira_tui.api), load (fn override).
 -- opts.sprint / opts.ui: stub fns for jira_tui.sprint / jira_tui.ui. opts.state: persist fake (fake_state()).
--- opts.queries / opts.hidden_tabs / opts.cache_ttl: as passed by init (cache off unless set).
+-- opts.queries / opts.hidden_tabs / opts.cache_ttl / opts.refresh_interval / opts.clock: as passed by init.
+-- opts.tty: read_key acts like a tty -- "tick" tokens are idle timeouts, function tokens run then
+-- tick, and the feed ends with ctrl-c instead of EOF.
 -- returns { ok, err, out = captured output, loads = loader calls, api / sprint = call logs }
 local function run_tui(keys, opts)
   opts = opts or {}
@@ -693,12 +695,16 @@ local function run_tui(keys, opts)
     clear = function() end, moveto = function() end,
     out = function(s) out[#out + 1] = s end,
     size = function() return 30, 120 end,
-    isatty = function() return false end,
+    isatty = function() return opts.tty == true end,
     read_key = function()
       i = i + 1
-      if keys[i] then return keys[i] end
+      local tok = keys[i]
+      if type(tok) == "function" then tok(); return nil end
+      if tok == "tick" then return nil end
+      if tok then return tok end
       if exhausted then error("feed exhausted") end
       exhausted = true
+      if opts.tty then return "ctrl-c" end
       return nil
     end,
   })
@@ -721,6 +727,8 @@ local function run_tui(keys, opts)
     hidden_tabs = opts.hidden_tabs or {},
     queries = opts.queries,
     cache_ttl = opts.cache_ttl,
+    refresh_interval = opts.refresh_interval,
+    clock = opts.clock,
     state = opts.state,
   })
   io.stderr = o_stderr
@@ -959,7 +967,7 @@ do
   local r = run_tui(keyseq("J", "j", "enter", "M"), { cache_ttl = 300, state = stt })
   ok(r.ok, "cache flow ok (" .. tostring(r.err) .. ")")
   eq(#r.loads, 2, "cache: M -> J query -> M = 2 loader calls")
-  ok(r.out:find("cached 0m", 1, true), "cache: footer marks cached view")
+  ok(r.out:find("updated 0m ago", 1, true), "cache: footer shows fetch age")
   r = run_tui(keyseq("J", "j", "enter", "M", "r"), { cache_ttl = 300, state = stt })
   eq(#r.loads, 3, "cache: r forces a fetch")
   r = run_tui(keyseq("J", "j", "enter", "M"), { state = stt })
@@ -1651,6 +1659,52 @@ printf '{"ok":true}' > "$out"; printf '__http=200'
   ok(rt.ok, "async supersede flow ok (" .. tostring(rt.err) .. ")")
   eq(#cancels, 1, "async supersede: in-flight handle cancelled")
   ok(not rt.out:find("ZZ-1", 1, true), "async supersede: stale result never applied")
+end
+
+-- ---- detail prefetch + auto-refresh ----
+do
+  local T = 1000
+  local clock = function() return T end
+  local getter = function(key) return { key = key, fields = { summary = "alpha root", status = { name = "To Do" } } } end
+  local r = run_tui({ "tick", "tick", "tick", "tick", "enter", "q" }, { tty = true, clock = clock,
+    api = { get_issue = getter } })
+  ok(r.ok, "prefetch flow ok (" .. tostring(r.err) .. ")")
+  local gi = calls(r.api, "get_issue")
+  eq(#gi, 1, "prefetch: one fetch on idle, enter served from cache")
+  eq(gi[1] and gi[1][2], "PE-1", "prefetch: cursor row")
+  ok(r.out:find("PE-1  alpha root", 1, true), "prefetch: detail opens")
+
+  r = run_tui({ "tick", "j", "tick", "j", "tick" }, { tty = true, clock = clock, api = { get_issue = getter } })
+  eq(#calls(r.api, "get_issue"), 0, "prefetch: needs 2 idle ticks on the same row")
+
+  r = run_tui({ "tick", "tick", "tick", "tick" }, { tty = true, clock = clock,
+    api = { get_issue = function() return nil, "http 500" end } })
+  eq(#calls(r.api, "get_issue"), 1, "prefetch: failure not retried every tick")
+
+  local slow = 0
+  r = run_tui({ "tick", "tick", "j", "k", "tick", "tick", "tick", "tick", "tick", "tick" }, { tty = true, clock = clock,
+    api = { get_issue = function(key)
+      slow = slow + 1
+      if slow == 1 then coroutine.yield({ fake = 1 }) end
+      return getter(key)
+    end, cancel = function() end } })
+  eq(#calls(r.api, "get_issue"), 2, "prefetch: cancelled by a key, retried once idle again")
+
+  T = 1000
+  r = run_tui({ "tick", function() T = 1200 end, "tick", function() T = 1301 end, "tick", "tick" },
+    { tty = true, clock = clock, refresh_interval = 300, api = { get_issue = getter } })
+  ok(r.ok, "auto-refresh flow ok (" .. tostring(r.err) .. ")")
+  eq(#r.loads, 2, "auto-refresh: reloads once after the interval")
+  ok(r.out:find("updated 3m ago", 1, true), "auto-refresh: footer age before reload")
+  ok(r.out:find("updated 0m ago", 1, true), "auto-refresh: footer resets after reload")
+
+  T = 1000
+  r = run_tui({ "j", "tick", function() T = 1400 end, "tick", "tick" }, { tty = true, clock = clock,
+    refresh_interval = 300, api = { get_issue = getter } })
+  eq(#r.loads, 2, "auto-refresh: fires")
+  ok(r.out:find(" 2/4 ", 1, true), "auto-refresh: cursor kept on the same row")
+  r = run_tui({ "tick", function() T = 99999 end, "tick" }, { tty = true, clock = clock, api = { get_issue = getter } })
+  eq(#r.loads, 1, "auto-refresh: off without refresh_interval")
 end
 
 -- ---- row patch after mutations ----
