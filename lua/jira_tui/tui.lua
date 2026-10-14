@@ -33,7 +33,7 @@ function M.run(opts)
     roots = {}, flat = {}, cursor = 1, scroll = 0, count = 0,
     sort_col = nil, sort_dir = nil, raw = {}, message = nil,
     hide_resolved = persist and persist.data.hide_resolved,
-    rows = 24, cols = 80,
+    rows = 24, cols = 80, detail_cache = {},
   }
   if st.hide_resolved == nil then st.hide_resolved = true end
   st.my_projects = opts.my_projects or {}
@@ -103,6 +103,7 @@ function M.run(opts)
 
   -- after a mutation re-fetch just that row (~0.4s) instead of reloading the view (0.7-4s)
   local function refresh_row(key, done_msg)
+    st.detail_cache[key] = nil
     local row, err = sprint.get_issue_row(key)
     if not row then
       st.message, st.message_ok = done_msg .. "; row refresh failed: " .. (err or "?"), false
@@ -243,18 +244,36 @@ function M.run(opts)
     os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", url, url))
   end
 
-  local function show_detail(n, mode)
-    if not n then return end
-    st.message = "loading " .. n.key .. "…"; draw()
-    local issue, err = api.get_issue(n.key)
-    local comments = mode ~= "markdown" and api.get_comments(n.key, 15) or nil
-    st.message = nil
+  local DETAIL_FIELDS = { "summary", "status", "issuetype", "priority", "assignee", "reporter", "parent",
+    "created", "updated", "description", "attachment", "comment", "issuelinks", "subtasks", "labels", "project" }
+
+  -- issue + embedded comments in one request; cached per key until refresh_row or r
+  local function fetch_detail(key)
+    if st.detail_cache[key] then return st.detail_cache[key] end
+    local pcfg = config.get_project_config(key:match("^(.-)%-%d+$"))
+    local fields = {}
+    for i, f in ipairs(DETAIL_FIELDS) do fields[i] = f end
+    fields[#fields + 1] = pcfg.story_point_field
+    fields[#fields + 1] = pcfg.acceptance_criteria_field
+    local issue, err = api.get_issue(key, fields)
     if err or type(issue) ~= "table" or type(issue.fields) ~= "table" then
       local jira_err = type(issue) == "table" and type(issue.errorMessages) == "table"
         and table.concat(issue.errorMessages, "; ")
-      st.message = n.key .. ": " .. (err or jira_err or "unexpected response")
-      return
+      return nil, err or jira_err or "unexpected response"
     end
+    local comments, more = model.recent_comments(issue.fields.comment, 15)
+    if more then comments = api.get_comments(key, 15) or {} end
+    st.detail_cache[key] = { issue = issue, comments = comments }
+    return st.detail_cache[key]
+  end
+
+  local function show_detail(n, mode)
+    if not n then return end
+    if not st.detail_cache[n.key] then st.message = "loading " .. n.key .. "…"; draw() end
+    local d, err = fetch_detail(n.key)
+    st.message = nil
+    if not d then st.message = n.key .. ": " .. err; return end
+    local issue, comments = d.issue, d.comments
     draw() -- clear the "loading" footer before the popup covers the board
     local project = type(issue.fields.project) == "table" and issue.fields.project.key or n.key:match("^(.-)%-")
     local pcfg = config.get_project_config(project)
@@ -488,7 +507,7 @@ function M.run(opts)
         if n then yank(config.options.jira.base .. "/browse/" .. n.key, n.key .. " url") end
       elseif k == "a" then assign_picker(n)
       elseif k == "A" then assign_me(n)
-      elseif k == "r" then load_view(st.view, st.filter)
+      elseif k == "r" then st.detail_cache = {}; load_view(st.view, st.filter)
       elseif k == "left" or k == "right" then
         local order = {} -- cycle order = render.TABS, minus hidden
         for _, tabdef in ipairs(render.TABS) do

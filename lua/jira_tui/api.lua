@@ -123,8 +123,9 @@ function M.search_issues(jql, page_token, max_results, fields, project_key)
   })
 end
 
-function M.get_issue(issue_key)
-  return curl_request("GET", "/rest/api/3/issue/" .. issue_key, nil)
+function M.get_issue(issue_key, fields)
+  local qs = fields and ("?fields=" .. table.concat(fields, ",")) or ""
+  return M.request("GET", "/rest/api/3/issue/" .. issue_key .. qs, nil)
 end
 
 function M.get_transitions(issue_key)

@@ -766,6 +766,66 @@ do
   restore(); api._me = nil
 end
 
+-- ---- detail: one request + per-key cache ----
+do
+  local api = require("jira_tui.api")
+  local log, restore = stub(api, { request = function() return { key = "PE-1", fields = {} } end })
+  api.get_issue("PE-1", { "summary", "comment", "customfield_1" })
+  eq(log[1][3], "/rest/api/3/issue/PE-1?fields=summary,comment,customfield_1", "get_issue fields -> query string")
+  api.get_issue("PE-1")
+  eq(log[2][3], "/rest/api/3/issue/PE-1", "get_issue without fields = all fields")
+  restore()
+
+  local cs = {}
+  for i = 1, 20 do cs[i] = { id = tostring(i) } end
+  local rc, more = model.recent_comments({ comments = cs, total = 20, maxResults = 100 }, 15)
+  eq(#rc, 15, "recent_comments caps at n")
+  eq(rc[1].id, "20", "recent_comments newest first")
+  eq(rc[15].id, "6", "recent_comments drops oldest")
+  eq(more, false, "recent_comments: page holds all")
+  rc, more = model.recent_comments({ comments = cs, total = 185, maxResults = 100 }, 15)
+  eq(more, true, "recent_comments: total > page -> fallback needed")
+  rc, more = model.recent_comments(nil, 15)
+  ok(#rc == 0 and more == false, "recent_comments: missing field")
+
+  local function issue_with(comment)
+    return { key = "PE-1", fields = { summary = "alpha root", status = { name = "To Do" }, comment = comment } }
+  end
+  local small = { comments = { { id = "1", body = "old" }, { id = "2", body = "new" } }, total = 2 }
+  local r = run_tui(keyseq("enter", "q", "enter", "q"), { api = {
+    get_issue = function() return issue_with(small) end,
+    get_comments = function() return {} end,
+  } })
+  ok(r.ok, "detail cache flow ok (" .. tostring(r.err) .. ")")
+  eq(#calls(r.api, "get_issue"), 1, "detail: reopen served from cache")
+  eq(#calls(r.api, "get_comments"), 0, "detail: comments embedded, no second request")
+  local gi = calls(r.api, "get_issue")[1] or {}
+  local fl = table.concat(gi[3] or {}, ",")
+  ok(fl:find("comment", 1, true) and fl:find("issuelinks", 1, true), "detail: fields include comment + links")
+  ok(r.out:find("Comments (2)", 1, true), "detail: embedded comments rendered")
+
+  local big = { comments = small.comments, total = 185 }
+  r = run_tui(keyseq("enter", "q"), { api = {
+    get_issue = function() return issue_with(big) end,
+    get_comments = function() return { { id = "185", body = "newest" } } end,
+  } })
+  eq(#calls(r.api, "get_comments"), 1, "detail: total > page -> one get_comments fallback")
+  ok(r.out:find("Comments (1)", 1, true), "detail: fallback comments used")
+
+  -- mutation invalidates; r clears all
+  r = run_tui(keyseq("enter", "q", "A", "enter", "q", "r", "enter", "q"), {
+    api = { get_issue = function() return issue_with(small) end, get_comments = function() return {} end,
+      myself = function() return { accountId = "me1", displayName = "Me" } end,
+      assign_issue = function() return true end },
+    sprint = { get_issue_row = function(key) return { key = key, summary = "alpha root", status = "To Do" } end },
+  })
+  ok(r.ok, "detail invalidation flow ok (" .. tostring(r.err) .. ")")
+  eq(#calls(r.api, "get_issue"), 3, "detail: refetch after mutation and after r")
+
+  r = run_tui(keyseq("enter"), { api = { get_issue = function() return nil, "http 404" end } })
+  ok(r.out:find("PE-1: http 404", 1, true), "detail: fetch error shown")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

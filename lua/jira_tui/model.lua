@@ -33,6 +33,15 @@ function M.upsert_row(raw, row)
   return #raw
 end
 
+-- embedded fields.comment is oldest first and capped (100). returns up to n newest first,
+-- plus true when total > page, i.e. the newest comments aren't in it.
+function M.recent_comments(field, n)
+  if type(field) ~= "table" or type(field.comments) ~= "table" then return {}, false end
+  local cs, out = field.comments, {}
+  for i = #cs, math.max(1, #cs - n + 1), -1 do out[#out + 1] = cs[i] end
+  return out, (tonumber(field.total) or #cs) > #cs
+end
+
 -- "2026-06-01T..." -> "2026-06-01"
 function M.short_date(iso)
   if type(iso) ~= "string" then return "" end
