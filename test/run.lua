@@ -1256,6 +1256,77 @@ do
   eq(drafts[2], "t\nbogus: 1\n---\n", "c: failed draft reopens on next c")
 end
 
+-- ---- configurable columns + status width ----
+do
+  local render = require("jira_tui.render")
+  local api = require("jira_tui.api")
+  local function plain(x) return (x:gsub("\27%[[%d;]*m", "")) end
+  local bad, berr = render.set_columns({ "key", "summary", "nope" })
+  ok(bad == nil and berr:find("nope"), "set_columns: unknown column rejected")
+  bad, berr = render.set_columns({ "key", "status" })
+  ok(bad == nil and berr:find("required"), "set_columns: summary required")
+  eq(table.concat((function() local o = {} for _, c in ipairs(render.COLUMNS) do o[#o + 1] = c.f end return o end)(), ","),
+    "key,summary,assignee,created,age,status", "set_columns: failed call keeps previous columns")
+
+  local node = { key = "PE-12", summary = string.rep("long title ", 20), assignee = "Somebody", type = "Story",
+    created = "2026-01-01T00:00:00.000+0000", updated = "2026-10-01T00:00:00.000+0000", status = "In Progress",
+    priority = "Medium", story_points = 3.0, labels = { "api", "perf" } }
+  local configs = {
+    { "key", "summary", "status" },
+    { "key", "summary", "assignee", "updated", "priority", "points", "labels", "status" },
+    { "key", "summary", "points", "assignee", "created", "age", "status" },
+  }
+  for _, cfg in ipairs(configs) do
+    assert(render.set_columns(cfg))
+    for _, iw in ipairs({ 100, 140, 200 }) do
+      eq(ansi.width(render.issue_line(node, 1, iw, false, true)), iw, "row width == iw: " .. table.concat(cfg, ",") .. " @" .. iw)
+      eq(ansi.width(render.issue_line(node, 2, iw, true, false)), iw, "child row width == iw: " .. #cfg .. " cols @" .. iw)
+      eq(ansi.width(render.column_header(iw)), iw, "header width == iw: " .. #cfg .. " cols @" .. iw)
+    end
+    ok(ansi.width(render.issue_line(node, 1, 72, false, true)) <= 72, "narrow row fits: " .. #cfg .. " cols")
+  end
+  assert(render.set_columns(configs[2]))
+  local wide = plain(render.issue_line(node, 1, 200, false, true))
+  ok(wide:find("api,perf", 1, true) and wide:find("Medium", 1, true), "labels + priority rendered")
+  ok(wide:find(" 3 ", 1, true) and not wide:find("3.0", 1, true), "points drop the trailing .0")
+  local hdr = plain(render.column_header(100))
+  ok(not hdr:find("Labels") and hdr:find("Status"), "narrow: rightmost optional columns drop first")
+
+  eq(render.status_width({}), 10, "status width floor")
+  eq(render.status_width({ { status = "In Progress" }, { status = "Done" } }), 13, "status width = longest + 2")
+  eq(render.status_width({ { status = string.rep("x", 40) } }), 22, "status width cap")
+
+  local log, restore = stub(api, { get_issue = function()
+    return { key = "PE-7", fields = { updated = "2026-10-10T00:00:00.000+0000", labels = { "a" } } } end })
+  local row = sprint.get_issue_row("PE-7")
+  eq(row.updated, "2026-10-10T00:00:00.000+0000", "row maps updated")
+  eq(row.labels[1], "a", "row maps labels")
+  ok(table.concat(log[1][3], ","):find("updated,labels", 1, true), "row fields include updated + labels")
+  restore()
+
+  -- gs menu = active columns; sorting a list column (labels) works
+  local issues = {
+    { key = "PE-1", summary = "a", status = "To Do", labels = { "zeta" } },
+    { key = "PE-2", summary = "b", status = "To Do", labels = { "alpha" } },
+  }
+  local menu
+  local r = run_tui(keyseq("g", "s"), { issues = issues, ui = { select = function(_, items)
+    menu = {}
+    for _, c in ipairs(items) do menu[#menu + 1] = c.l end
+    return items[7]
+  end } })
+  ok(r.ok, "labels sort ok (" .. tostring(r.err) .. ")")
+  eq(table.concat(menu or {}, ","), "Key,Title,Assignee,Updated,Priority,Pts,Labels,Status", "gs menu = active columns")
+  local function last_pos(needle)
+    local pos, from = nil, 1
+    while true do local i = r.out:find(needle, from, true); if not i then return pos end; pos, from = i, i + 1 end
+  end
+  ok(last_pos("PE-2") < last_pos("PE-1"), "labels sort: alpha row repainted above zeta row")
+
+  assert(render.set_columns())
+  render.COL.status = 14
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

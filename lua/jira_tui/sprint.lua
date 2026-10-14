@@ -32,6 +32,8 @@ local function map_issue(issue, story_point_field)
     type = safe_get(fields, "issuetype", "name") or "Task",
     reporter = safe_get(fields, "reporter", "displayName") or "Unknown",
     created = fields.created,
+    updated = fields.updated,
+    labels = type(fields.labels) == "table" and fields.labels or {},
     story_points = safe_get(fields, story_point_field),
     status_category = status_category,
   }

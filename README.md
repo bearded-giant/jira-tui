@@ -43,8 +43,12 @@ return {
   },
   -- seconds a fetched view is reused when you switch back to its tab (0 = always refetch)
   cache_ttl = 300,
+  -- board columns, left to right
+  columns = { "key", "summary", "assignee", "created", "age", "status" },
 }
 ```
+
+`columns` picks from `key`, `summary`, `assignee`, `status`, `created`, `age` (time since created), `updated` (time since last update), `priority`, `points` and `labels`. `key` and `summary` are required. On a narrow terminal the optional ones (everything except key, summary, assignee and status) drop out right to left until the title has room, and `gs` sorts by whichever columns you've got on screen. The status column sizes itself to the longest status in the loaded rows.
 
 Switching tabs reuses rows fetched within the last `cache_ttl` seconds, so flipping between views is instant; the footer says `cached Nm` when you're looking at cached rows, and `r` always refetches. Your own edits (status, assign, edit, close) patch the affected row in every cached view that already shows it; a new issue only lands in the view you created it from.
 

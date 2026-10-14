@@ -9,32 +9,66 @@ local GUTTER = 2     -- selection bar / spaces
 local ROOT_PREFIX = 3 -- chevron + icon + space, before the key (icon sits next to key)
 local CHILD_INDENT = 4 -- spaces per nesting level for subtasks
 
+-- status width follows the loaded rows (status_width); 14 until the first rebuild
 M.COL = {
   key = 12, assignee = 12, created = 12, age = 6, status = 14,
+  updated = 7, priority = 9, points = 6, labels = 16,
 }
 local SEP = 2
 local MIN_SUMMARY = 20
 
--- rendered column order. optional columns drop first when the board is narrow.
-M.COLUMNS = {
-  { f = "key", l = "Key" }, { f = "summary", l = "Title" }, { f = "assignee", l = "Assignee" },
-  { f = "created", l = "Created", optional = true }, { f = "age", l = "Age", optional = true },
-  { f = "status", l = "Status" },
+M.ALL_COLUMNS = {
+  key = { f = "key", l = "Key" }, summary = { f = "summary", l = "Title" },
+  assignee = { f = "assignee", l = "Assignee" }, status = { f = "status", l = "Status" },
+  created = { f = "created", l = "Created", optional = true }, age = { f = "age", l = "Age", optional = true },
+  updated = { f = "updated", l = "Updated", optional = true },
+  priority = { f = "priority", l = "Priority", optional = true },
+  points = { f = "story_points", l = "Pts", optional = true, w = "points" },
+  labels = { f = "labels", l = "Labels", optional = true },
 }
+M.DEFAULT_COLUMNS = { "key", "summary", "assignee", "created", "age", "status" }
+
+-- active column order (config `columns`); also the gs sort menu
+function M.set_columns(names)
+  local cols = {}
+  local have = {}
+  for _, name in ipairs(names or M.DEFAULT_COLUMNS) do
+    local c = M.ALL_COLUMNS[name]
+    if not c then return nil, "columns: unknown column '" .. tostring(name) .. "'" end
+    cols[#cols + 1] = c
+    have[name] = true
+  end
+  if not have.key or not have.summary then return nil, "columns: key and summary are required" end
+  M.COLUMNS = cols
+  return true
+end
+M.set_columns()
+
+local function colw(c) return M.COL[c.w or c.f] end
 
 local function fixed_width(cols)
   local w = SEP * (#cols - 1)
-  for _, c in ipairs(cols) do if c.f ~= "summary" then w = w + M.COL[c.f] end end
+  for _, c in ipairs(cols) do if c.f ~= "summary" then w = w + colw(c) end end
   return w
 end
 
--- columns shown at this interior width: Created/Age go when the title would starve
+-- columns shown at this interior width: optional columns drop right to left until the title fits
 -- ponytail: below ~71 cols rows are hard-cut by ansi.cut; shrink assignee/status if that matters
 function M.columns(iw)
-  if iw - GUTTER - ROOT_PREFIX - fixed_width(M.COLUMNS) >= MIN_SUMMARY then return M.COLUMNS end
-  local narrow = {}
-  for _, c in ipairs(M.COLUMNS) do if not c.optional then narrow[#narrow + 1] = c end end
-  return narrow
+  local cols = {}
+  for i, c in ipairs(M.COLUMNS) do cols[i] = c end
+  local i = #cols
+  while i > 0 and iw - GUTTER - ROOT_PREFIX - fixed_width(cols) < MIN_SUMMARY do
+    if cols[i].optional then table.remove(cols, i) end
+    i = i - 1
+  end
+  return cols
+end
+
+function M.status_width(rows)
+  local w = 0
+  for _, r in ipairs(rows or {}) do w = math.max(w, ansi.width(r.status or "")) end
+  return math.max(10, math.min(22, w + 2))
 end
 
 M.TABS = { -- order + hint key, matches jim
@@ -154,7 +188,7 @@ function M.column_header(board_w, sort_col, sort_dir)
   for _, c in ipairs(M.columns(board_w)) do
     local label = c.l
     if sort_col == c.f then label = label .. (sort_dir == "asc" and " ▲" or " ▼") end
-    cells[#cells + 1] = ansi.fgtext(ansi.fit(label, c.f == "summary" and sw or M.COL[c.f]), C.overlay, ansi.BOLD)
+    cells[#cells + 1] = ansi.fgtext(ansi.fit(label, c.f == "summary" and sw or colw(c)), C.overlay, ansi.BOLD)
   end
   return string.rep(" ", GUTTER + ROOT_PREFIX) .. table.concat(cells, string.rep(" ", SEP))
 end
@@ -289,8 +323,16 @@ function M.issue_line(node, depth, board_w, selected, is_last)
   local sbg, sfg = status_bg(node.status)
   local status = ansi.bgtext(" " .. ansi.pad(st, M.COL.status - 2) .. " ", sfg, sbg, ansi.BOLD)
 
+  local updated = ansi.fgtext(ansi.fit(model.age(node.updated), M.COL.updated), C.subtext)
+  local priority = ansi.fgtext(ansi.fit(node.priority or "", M.COL.priority), C.subtext)
+  local pts = node.story_points and tostring(node.story_points):gsub("%.0+$", "") or ""
+  local points = ansi.fgtext(ansi.fit(pts, M.COL.points), C.sky)
+  local labels = ansi.fgtext(ansi.fit(type(node.labels) == "table" and table.concat(node.labels, ",") or "",
+    M.COL.labels), C.overlay)
+
   local gutter = selected and ansi.fgtext("▌", C.sky, ansi.BOLD) .. " " or "  "
-  local cells = { key = key, summary = summary, assignee = assignee, created = created, age = age, status = status }
+  local cells = { key = key, summary = summary, assignee = assignee, created = created, age = age, status = status,
+    updated = updated, priority = priority, story_points = points, labels = labels }
   local out = {}
   for _, c in ipairs(M.columns(board_w)) do out[#out + 1] = cells[c.f] end
   return gutter .. prefix .. table.concat(out, string.rep(" ", SEP))

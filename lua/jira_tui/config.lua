@@ -60,6 +60,7 @@ function M.load()
       if not qs then return nil, path .. ": " .. qerr end
       M.options.queries = qs
       M.options.cache_ttl = tonumber(user.cache_ttl) or M.options.cache_ttl
+      M.options.columns = user.columns
     end
   end
 

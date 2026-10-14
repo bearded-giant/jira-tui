@@ -113,7 +113,7 @@ M.request = curl_request
 function M.row_fields(project_key)
   return {
     "summary", "status", "parent", "priority", "assignee", "reporter",
-    "created", "timespent", "timeoriginalestimate", "issuetype",
+    "created", "updated", "labels", "timespent", "timeoriginalestimate", "issuetype",
     config.get_project_config(project_key).story_point_field,
   }
 end

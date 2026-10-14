@@ -13,11 +13,13 @@ local M = {}
 local C = ansi.color
 
 local function sort_roots(roots, col, dir)
-  -- age is derived from created: same key, inverted order (older = bigger age)
+  -- age is derived from created and shown as time-since, like updated: inverted order (older = bigger)
   local field = col == "age" and "created" or col
-  if col == "age" then dir = dir == "asc" and "desc" or "asc" end
+  if col == "age" or col == "updated" then dir = dir == "asc" and "desc" or "asc" end
   table.sort(roots, function(a, b)
     local va, vb = a[field], b[field]
+    if type(va) == "table" then va = table.concat(va, ",") end
+    if type(vb) == "table" then vb = table.concat(vb, ",") end
     if va == vb then return false end
     if va == nil then return dir == "asc" end
     if vb == nil then return dir ~= "asc" end
@@ -75,6 +77,7 @@ function M.run(opts)
       end
     end
     st.count = #issues
+    render.COL.status = render.status_width(st.raw)
     st.roots = model.build_issue_tree(issues)
     if st.sort_col then sort_roots(st.roots, st.sort_col, st.sort_dir) end
     for _, n in ipairs(st.roots) do

@@ -72,6 +72,7 @@ function M.main(argv)
   if launch.help then usage(); return 0 end
 
   local ok, err = config.load()
+  if ok then ok, err = render.set_columns(config.options.columns) end
   if not ok then io.stderr:write("jira-tui: " .. err .. "\n"); return 1 end
 
   tui.run({
