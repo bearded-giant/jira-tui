@@ -652,7 +652,7 @@ local TUI_FIXTURE = {
 -- the tokens, then nil once (non-interactive main loop quits), then errors so a modal or
 -- chord left waiting fails loudly instead of spinning forever.
 -- opts: issues (fixture rows), view, project, api (stub fns for jira_tui.api), load (fn override).
--- opts.sprint: stub fns for jira_tui.sprint. opts.state: persist fake (fake_state()).
+-- opts.sprint / opts.ui: stub fns for jira_tui.sprint / jira_tui.ui. opts.state: persist fake (fake_state()).
 -- opts.queries / opts.hidden_tabs / opts.cache_ttl: as passed by init (cache off unless set).
 -- returns { ok, err, out = captured output, loads = loader calls, api / sprint = call logs }
 local function run_tui(keys, opts)
@@ -679,6 +679,7 @@ local function run_tui(keys, opts)
   })
   local api_log, restore_api = stub(api, opts.api or {})
   local sprint_log, restore_sprint = stub(require("jira_tui.sprint"), opts.sprint or {})
+  local _, restore_ui = stub(require("jira_tui.ui"), opts.ui or {})
   local o_stderr = io.stderr
   io.stderr = { write = function() end }
   local ok_, err_ = tui.run({
@@ -698,7 +699,7 @@ local function run_tui(keys, opts)
     state = opts.state,
   })
   io.stderr = o_stderr
-  restore_api(); restore_sprint(); restore_term()
+  restore_api(); restore_sprint(); restore_ui(); restore_term()
   return { ok = ok_, err = err_, out = table.concat(out), loads = loads, api = api_log, sprint = sprint_log }
 end
 
@@ -1037,6 +1038,38 @@ do
   eq(table.concat(order, ","), "leave,raw_off,raw_on,enter", "edit_external: terminal restored on editor error")
   ui._run_editor = o_run
   restore()
+end
+
+-- ---- comment (C) ----
+do
+  local api = require("jira_tui.api")
+  local log, restore = stub(api, { request = function() return { id = "1" } end })
+  api.add_comment("PE-1", { type = "doc", version = 1, content = {} })
+  eq(log[1][2], "POST", "add_comment method")
+  eq(log[1][3], "/rest/api/3/issue/PE-1/comment", "add_comment endpoint")
+  eq(log[1][4].body.type, "doc", "add_comment wraps adf in body")
+  restore()
+
+  local issue = { key = "PE-1", fields = { summary = "alpha root", status = { name = "To Do" } } }
+  local r = run_tui(keyseq("enter", "q", "C", "enter", "q"), {
+    ui = { edit_external = function() return "- one\n- `two`" end },
+    api = { add_comment = function() return { id = "9" } end, get_issue = function() return issue end },
+  })
+  ok(r.ok, "comment flow ok (" .. tostring(r.err) .. ")")
+  local ac = calls(r.api, "add_comment")
+  eq(#ac, 1, "C: one add_comment call")
+  eq(ac[1] and ac[1][2], "PE-1", "C: comments on cursor row")
+  eq(ac[1] and ac[1][3].content[1].type, "bulletList", "C: body converted from markdown")
+  ok(r.out:find("commented on PE-1", 1, true), "C: success message")
+  eq(#calls(r.api, "get_issue"), 2, "C: detail cache invalidated")
+
+  r = run_tui(keyseq("C"), { ui = { edit_external = function() return nil end },
+    api = { add_comment = function() return true end } })
+  eq(#calls(r.api, "add_comment"), 0, "C: empty editor -> no call")
+
+  r = run_tui(keyseq("C"), { ui = { edit_external = function() return "x" end },
+    api = { add_comment = function() return nil, "http 403" end } })
+  ok(r.out:find("comment failed: http 403", 1, true), "C: failure surfaced")
 end
 
 -- ---- row patch after mutations ----

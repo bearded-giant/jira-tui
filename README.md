@@ -108,6 +108,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `o` (in detail) | pick an attachment, download and open it |
 | `s` | change issue status |
 | `a` / `A` | assign (user picker) / assign to me |
+| `C` | comment: opens `$VISUAL` / `$EDITOR` (falls back to `nvim`, then `vi`), posts what you write as markdown |
 | `b` / `gx` | open issue in browser |
 | `y` / `Y` | copy issue key / url |
 | `gb` | copy a git branch name (`pe-1472-add-rate-limit`) |

@@ -5,6 +5,7 @@ local ansi = require("jira_tui.ansi")
 local api = require("jira_tui.api")
 local config = require("jira_tui.config")
 local model = require("jira_tui.model")
+local md = require("jira_tui.md")
 local sprint = require("jira_tui.sprint")
 local version = require("jira_tui.version")
 
@@ -446,6 +447,17 @@ function M.run(opts)
     refresh_row(n.key, n.key .. " description updated")
   end
 
+  local function comment_on(n)
+    if not n then return end
+    local text = ui.edit_external("", ".md")
+    if not text then st.message = "comment cancelled (empty)"; return end
+    st.message = "commenting on " .. n.key .. "…"; draw()
+    local _, cerr = api.add_comment(n.key, md.to_adf(text))
+    if cerr then st.message = n.key .. ": comment failed: " .. cerr; return end
+    st.detail_cache[n.key] = nil
+    st.message, st.message_ok = "commented on " .. n.key, true
+  end
+
   local function create_story()
     if not ensure_project() then return end
     local txt = ui.input("New story in " .. st.project .. "  (title / --- / description)",
@@ -575,6 +587,7 @@ function M.run(opts)
       elseif k == "d" then close_issue(n)
       elseif k == "e" then edit_issue(n)
       elseif k == "c" then create_story()
+      elseif k == "C" then comment_on(n)
       end
       draw()
       end

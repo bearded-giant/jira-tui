@@ -157,6 +157,10 @@ function M.get_comments(issue_key, max)
   return result.comments or {}, nil
 end
 
+function M.add_comment(issue_key, adf)
+  return M.request("POST", "/rest/api/3/issue/" .. issue_key .. "/comment", { body = adf })
+end
+
 function M.get_assignable(issue_key)
   local result, err = curl_request("GET",
     "/rest/api/3/user/assignable/search?issueKey=" .. issue_key .. "&maxResults=50", nil)
