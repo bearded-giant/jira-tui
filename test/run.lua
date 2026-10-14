@@ -395,6 +395,46 @@ do
   eq(ui.input("Project key", {}), nil, "esc cancels")  -- \27 then exhaustion -> esc
   feed("h\195\169\127\13") -- h, é, backspace, enter
   eq(ui.input("x", {}), "h", "backspace drops whole utf-8 codepoint")
+
+  -- cursor editing (regression: arrows ignored, buffer was append-only)
+  feed("ac\27[Db\13")
+  eq(ui.input("x", {}), "abc", "left then insert mid-string")
+  feed("\27[Dz\13")
+  eq(ui.input("x", { value = "abc" }), "abzc", "prefilled value: cursor starts at end")
+  feed("abc\27[H\27[3~\27[F!\13")
+  eq(ui.input("x", {}), "bc!", "home, delete, end")
+  feed("\195\169x\27[D\27[D\127\13")
+  eq(ui.input("x", {}), "\195\169x", "left steps a whole utf-8 codepoint, bs at 0 is a no-op")
+  feed("ab\13cd\27[A\27[Dx\19")
+  eq(ui.input("x", { multiline = true }), "axb\ncd", "up keeps column, left, insert")
+  feed("\27[A\27[A\27[B\27[B\27[Hy\19")
+  eq(ui.input("x", { multiline = true, value = "abc\nd\nefg" }), "abc\nd\nyefg", "up/down clamp to line length, home is line start")
+  -- width 20 -> 15-col rows: "aaaa bbbb cccc " / "dddd eeee" (breaks after the space)
+  feed("\27[AX\19")
+  eq(ui.input("x", { multiline = true, width = 20, value = "aaaa bbbb cccc dddd eeee" }), "aaaa bbbbX cccc dddd eeee",
+    "up moves by wrapped row inside one long line, keeping column")
+  feed("\27[A\27[A\27[HZ\19")
+  eq(ui.input("x", { multiline = true, width = 20, value = "aaaa bbbb cccc dddd eeee" }), "Zaaaa bbbb cccc dddd eeee",
+    "up on top row is a no-op, home goes to line start")
+  local long = string.rep("project = REF AND ", 20)
+  local drawn = {}
+  term.out = function(s) drawn[#drawn + 1] = s end
+  feed("\19")
+  eq(ui.input("x", { multiline = true, value = long, width = 40, height = 8 }), (long:gsub("%s+$", "")), "long query survives")
+  local cursor_seen = false
+  for _, s in ipairs(drawn) do
+    ok(ansi.width(ansi.strip(s)) <= 40, "editor row fits box")
+    if s:find(ansi.sgr(" ", ansi.REVERSE), 1, true) then cursor_seen = true end
+  end
+  ok(cursor_seen, "editor scrolls so the end-of-buffer cursor is drawn")
+  term.out = function() end
+
+  feed("je")
+  local it, idx, act = ui.select("t", { "a", "b" }, { keys = { e = "edit" } })
+  eq(it, "b", "select action key returns item"); eq(idx, 2, "select action index"); eq(act, "edit", "select action name")
+  feed("\13")
+  it, idx, act = ui.select("t", { "a" }, { keys = { e = "edit" } })
+  eq(act, nil, "Enter returns no action")
   term.out, term.moveto, term.size, term.read = o_out, o_move, o_size, o_read
 end
 

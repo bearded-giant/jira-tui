@@ -84,7 +84,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `M` | My Issues (assigned to you) |
 | `S` / `B` | Active Sprint / Backlog |
 | `p` | set / change the project (for sprint + backlog) |
-| `J` | JQL picker (history, or new query) · `gj` new query |
+| `J` | JQL picker (history, or new query; `e` edits the selected query) · `gj` new query |
 | `gs` | sort by column |
 | `/` | filter loaded rows by summary or key (instant, no refetch) · `BS` clear |
 | `x` | show / hide resolved |

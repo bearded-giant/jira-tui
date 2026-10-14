@@ -46,7 +46,7 @@ function M.moveto(r, c) M.out("\27[" .. r .. ";" .. (c or 1) .. "H") end
 M.read = function(n) return io.read(n) end
 
 local FINAL = { A = "up", B = "down", C = "right", D = "left", H = "home", F = "end" }
-local TILDE = { ["1"] = "home", ["4"] = "end", ["5"] = "pgup", ["6"] = "pgdn", ["7"] = "home", ["8"] = "end" }
+local TILDE = { ["1"] = "home", ["3"] = "del", ["4"] = "end", ["5"] = "pgup", ["6"] = "pgdn", ["7"] = "home", ["8"] = "end" }
 
 -- consume one CSI: ESC [ params(0x30-0x3F)* final(0x40-0x7E). unknown finals return nil
 -- but the whole sequence is always eaten so it can't leak bytes as keystrokes.
@@ -72,7 +72,7 @@ local function read_csi()
 end
 
 -- single logical-key reader. returns a printable char or one of:
--- enter esc tab bs ctrl-s ctrl-c ctrl-d ctrl-u up down left right home end pgup pgdn wheelup wheeldown.
+-- enter esc tab bs del ctrl-s ctrl-c ctrl-d ctrl-u up down left right home end pgup pgdn wheelup wheeldown.
 -- nil = nothing to report: no input (timeout on a tty, EOF on a pipe) or a swallowed sequence.
 function M.read_key()
   local c = M.read(1)

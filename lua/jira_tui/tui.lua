@@ -203,15 +203,23 @@ function M.run(opts)
     if load_view(render.jql_view(q)) and persist then persist.add_jql(q) end
   end
 
+  local function edit_jql(title, q)
+    local rows, cols = term.size()
+    run_jql(ui.input(title, { value = q, multiline = true, width = cols, height = math.floor(rows / 2) }))
+  end
+
   local NEWQ = "＋ New query…"
   local function pick_jql()
     local hist = (persist and persist.data.jql_history) or {}
     local items = { NEWQ }
     for _, q in ipairs(hist) do items[#items + 1] = q end
-    local choice = ui.select("JQL", items,
-      { format = function(s) return s == NEWQ and s or (s:gsub("%s+", " ")) end })
+    local choice, _, action = ui.select("JQL", items, {
+      width = select(2, term.size()), keys = { e = "edit" }, hint = "e edit",
+      format = function(s) return s == NEWQ and s or (s:gsub("%s+", " ")) end,
+    })
     if not choice then return end
-    if choice == NEWQ then run_jql(ui.input("New JQL", { multiline = true }))
+    if choice == NEWQ then edit_jql("New JQL")
+    elseif action == "edit" then edit_jql("Edit JQL", choice)
     else run_jql(choice) end
   end
 
@@ -509,7 +517,7 @@ function M.run(opts)
             local br = model.branch_name(n.key, n.summary)
             yank(br, "branch " .. br)
           end
-        elseif nk == "j" then run_jql(ui.input("New JQL", { multiline = true }))
+        elseif nk == "j" then edit_jql("New JQL")
         elseif nk == "s" then
           -- menu is the rendered column table, so menu/columns/indicator can't drift
           local choice = ui.select("Sort by", render.COLUMNS, { format = function(c) return c.l end })

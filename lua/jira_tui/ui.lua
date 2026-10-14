@@ -28,7 +28,39 @@ end
 M.draw_box = draw_box
 M.center = center
 
--- text input modal. opts: {value, multiline, width, height, hint}. returns string or nil (cancel).
+-- cursor positions are byte offsets between codepoints (0..#s); stepping skips
+-- utf-8 continuation bytes so edits never split a multibyte char.
+-- shortcut: one codepoint = one cell, wide chars (cjk/emoji) misalign the cursor; fine for jql.
+local function is_cont(s, i) local b = s:byte(i); return b and b >= 0x80 and b < 0xC0 end
+local function cp_prev(s, p)
+  p = p - 1
+  while p > 0 and is_cont(s, p + 1) do p = p - 1 end
+  return math.max(p, 0)
+end
+local function cp_next(s, p)
+  p = p + 1
+  while p < #s and is_cont(s, p + 1) do p = p + 1 end
+  return math.min(p, #s)
+end
+local function cp_advance(s, p, n, limit)
+  for _ = 1, n do if p >= limit then break end; p = cp_next(s, p) end
+  return p
+end
+local function cp_count(s, a, b) return select(2, s:sub(a + 1, b):gsub("[^\128-\191]", "")) end
+local function line_start(s, p) while p > 0 and s:sub(p, p) ~= "\n" do p = p - 1 end; return p end
+local function line_end(s, p) local i = s:find("\n", p + 1, true); return i and i - 1 or #s end
+
+-- bytes (a, b] of s, with the codepoint at cursor p reversed when a <= p <= b
+local function span(s, a, b, p)
+  if p < a or p > b then return ansi.fgtext(s:sub(a + 1, b), C.text) end
+  local n = cp_next(s, p)
+  local at = (p < #s and s:sub(p + 1, p + 1) ~= "\n") and s:sub(p + 1, n) or " "
+  return ansi.fgtext(s:sub(a + 1, p), C.text) .. ansi.sgr(at, ansi.REVERSE)
+    .. ansi.fgtext(p < b and s:sub(n + 1, b) or "", C.text)
+end
+
+-- text input modal. opts: {value, multiline, width, height}. returns string or nil (cancel).
+-- multiline soft-wraps and scrolls; single-line scrolls horizontally.
 function M.input(title, opts)
   M._dirty = true
   opts = opts or {}
@@ -37,27 +69,50 @@ function M.input(title, opts)
   local h = opts.multiline and math.min(opts.height or 9, rows - 6) or 5
   local top, left = center(rows, cols, w, h)
   local buf = opts.value or ""
-  local cursor = ansi.sgr(" ", ansi.REVERSE) -- visible block cursor
+  local p = #buf
+  local scroll = 0
+  local vis, crow = {}, 1 -- wrapped rows from the last draw; up/down walk these, not logical lines
   local hint = opts.multiline and "Ctrl-s submit   Esc cancel" or "Enter submit   Esc cancel"
+
+  local function insert(t) buf = buf:sub(1, p) .. t .. buf:sub(p + 1); p = p + #t end
 
   while true do
     draw_box(top, left, w, h, title)
     if opts.multiline then
-      local n = 0
-      local lastlen = 0
-      for _ in (buf .. "\n"):gmatch("(.-)\n") do lastlen = lastlen + 1 end
-      n = 0
-      for line in (buf .. "\n"):gmatch("(.-)\n") do
-        if n < h - 3 then
-          term.moveto(top + 1 + n, left + 2)
-          local tail = (n == lastlen - 1) and cursor or ""
-          term.out(ansi.fgtext(ansi.truncate(line, w - 5), C.text) .. tail)
+      local tw, body = w - 5, h - 3
+      vis, crow = {}, 1
+      local ls = 0
+      while true do
+        local le = line_end(buf, ls)
+        local a = ls
+        repeat
+          local b = cp_advance(buf, a, tw, le)
+          local sp = b < le and buf:sub(a + 1, b):match(".*() ")
+          if sp and sp > 1 then b = a + sp end
+          vis[#vis + 1] = { a, b, last = b == le }
+          if p >= a and (p < b or (p == b and b == le)) then crow = #vis end
+          a = b
+        until a >= le
+        if le >= #buf then break end
+        ls = le + 1
+      end
+      if crow <= scroll then scroll = crow - 1 end
+      if crow > scroll + body then scroll = crow - body end
+      for i = 1, body do
+        local r = vis[scroll + i]
+        if r then
+          term.moveto(top + i, left + 2)
+          term.out(span(buf, r[1], r[2], p))
         end
-        n = n + 1
       end
     else
+      local tw = w - 8
+      local col = cp_count(buf, 0, p)
+      if col < scroll then scroll = col end
+      if col - scroll > tw then scroll = col - tw end
+      local a = cp_advance(buf, 0, scroll, #buf)
       term.moveto(top + 2, left + 3)
-      term.out(ansi.fgtext("❯ ", C.sky, ansi.BOLD) .. ansi.fgtext(ansi.truncate(buf, w - 8), C.text) .. cursor)
+      term.out(ansi.fgtext("❯ ", C.sky, ansi.BOLD) .. span(buf, a, cp_advance(buf, a, tw, #buf), p))
     end
     term.moveto(top + h - 1, left + 3)
     term.out(ansi.fgtext(" " .. hint .. " ", C.overlay))
@@ -66,18 +121,25 @@ function M.input(title, opts)
     if k == "esc" or k == "ctrl-c" then return nil end
     if opts.multiline and k == "ctrl-s" then return trim(buf) end
     if not opts.multiline and k == "enter" then return trim(buf) end
-    if k == "enter" and opts.multiline then buf = buf .. "\n"
+    if k == "enter" and opts.multiline then insert("\n")
     elseif k == "bs" then
-      -- drop one codepoint, not one byte (multibyte utf-8 would corrupt)
-      local i = #buf
-      while i > 1 and buf:byte(i) >= 0x80 and buf:byte(i) < 0xC0 do i = i - 1 end
-      buf = buf:sub(1, i - 1)
-    elseif k == "tab" then buf = buf .. "  "
-    elseif type(k) == "string" and #k == 1 and k:byte() >= 32 then buf = buf .. k end
+      if p > 0 then local a = cp_prev(buf, p); buf = buf:sub(1, a) .. buf:sub(p + 1); p = a end
+    elseif k == "del" then
+      if p < #buf then buf = buf:sub(1, p) .. buf:sub(cp_next(buf, p) + 1) end
+    elseif k == "left" then p = cp_prev(buf, p)
+    elseif k == "right" then p = cp_next(buf, p)
+    elseif k == "home" then p = opts.multiline and line_start(buf, p) or 0
+    elseif k == "end" then p = opts.multiline and line_end(buf, p) or #buf
+    elseif opts.multiline and (k == "up" or k == "down") then
+      local t = vis[crow + (k == "up" and -1 or 1)]
+      if t then p = cp_advance(buf, t[1], cp_count(buf, vis[crow][1], p), t.last and t[2] or cp_prev(buf, t[2])) end
+    elseif k == "tab" then insert("  ")
+    elseif type(k) == "string" and #k == 1 and k:byte() >= 32 then insert(k) end
   end
 end
 
--- select modal. items list, opts.format(item)->string. returns item, index or nil.
+-- select modal. items list, opts.format(item)->string, opts.keys {key = action}
+-- + opts.hint for extra actions. returns item, index, action (nil on Enter) or nil.
 function M.select(title, items, opts)
   M._dirty = true
   opts = opts or {}
@@ -109,10 +171,12 @@ function M.select(title, items, opts)
       end
     end
     term.moveto(top + h - 1, left + 2)
-    term.out(ansi.fgtext(string.format(" %d/%d   j/k move   Enter select   Esc cancel ", sel, #items), C.overlay))
+    term.out(ansi.fgtext(string.format(" %d/%d   j/k move   Enter select   %sEsc cancel ",
+      sel, #items, opts.hint and opts.hint .. "   " or ""), C.overlay))
 
     local k; repeat k = term.read_key() until k
     if k == "esc" or k == "q" or k == "ctrl-c" then return nil end
+    if opts.keys and opts.keys[k] and items[sel] then return items[sel], sel, opts.keys[k] end
     if (k == "j" or k == "down" or k == "wheeldown") and sel < #items then sel = sel + 1 end
     if (k == "k" or k == "up" or k == "wheelup") and sel > 1 then sel = sel - 1 end
     if k == "enter" and items[sel] then return items[sel], sel end
@@ -187,7 +251,7 @@ local HELP = {
     { "M", "My Issues" }, { "S", "Active Sprint" }, { "B", "Backlog" },
     { "→ / ←", "Cycle tabs" }, { "p", "Set / change project" },
   } },
-  { "JQL", { { "J", "Pick from history / new" }, { "gj", "New query" } } },
+  { "JQL", { { "J", "Pick from history / new (e edits a past query)" }, { "gj", "New query" } } },
   { "Navigation", {
     { "j / k", "Move (mouse wheel too)" }, { "⏎", "Open issue (expand if it has subtasks)" },
     { "Space / Tab / o", "Expand / collapse" }, { "Ctrl-d / Ctrl-u", "Half page down / up" },
