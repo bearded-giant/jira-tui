@@ -41,7 +41,7 @@ config: ]] .. config.config_path() .. [[ (lua table) or env
   JIRA_TOKEN  api token (JIRA_API_TOKEN also accepted)
 
 keys: j/k move  Enter open  / filter  M mine  1-9 saved queries  p project  J jql
-      K detail  s status  a/A assign  C comment  y/Y copy  gb branch  b open
+      K detail  s status  a/A assign  C comment  w log work  y/Y copy  gb branch  b open
       x hide-resolved  r refresh  q back  Esc quit  ? help
 ]])
 end

@@ -470,6 +470,18 @@ function M.run(opts)
     if choice then choice[2](n) end
   end
 
+  local function log_work(n)
+    if not n then return end
+    local s = ui.input("Log time on " .. n.key .. "  (1h 30m, 2d, 45m)", { width = 50 })
+    if not s or s == "" then return end
+    local dur = model.valid_duration(s)
+    if not dur then st.message = "not a duration: " .. s .. "  (use 1h 30m, 2d, 45m)"; return end
+    st.message = "logging " .. dur .. " on " .. n.key .. "…"; draw()
+    local _, werr = api.add_worklog(n.key, dur)
+    if werr then st.message = n.key .. ": worklog failed: " .. werr; return end
+    refresh_row(n.key, "logged " .. dur .. " on " .. n.key)
+  end
+
   local function comment_on(n)
     if not n then return end
     local text = ui.edit_external("", ".md")
@@ -564,6 +576,7 @@ function M.run(opts)
       s = wrap(function() change_status(n) end), a = wrap(function() assign_picker(n) end),
       A = wrap(function() assign_me(n) end), e = wrap(function() edit_issue(n) end),
       d = wrap(function() close_issue(n) end), C = wrap(function() comment_on(n) end),
+      w = wrap(function() log_work(n) end),
       y = wrap(function() yank(n.key, n.key) end),
       Y = wrap(function() yank(config.options.jira.base .. "/browse/" .. n.key, n.key .. " url") end),
       b = wrap(function() open_browser(n) end),
@@ -599,7 +612,7 @@ function M.run(opts)
       st.in_detail = true
       local nav = ui.detail(title, text, {
         alt = alt, actions = acts,
-        hint = (has_atts and "o attachment   " or "") .. "s a A e d C y Y b   ]/[ issue",
+        hint = (has_atts and "o attachment   " or "") .. "s a A e d C w y Y b   ]/[ issue",
         reload = function()
           local d2 = fetch_detail(node.key)
           if not d2 then return end
@@ -727,6 +740,7 @@ function M.run(opts)
       elseif k == "e" then edit_issue(n)
       elseif k == "c" then if ensure_project() then create_flow(st.project) end
       elseif k == "C" then comment_on(n)
+      elseif k == "w" then log_work(n)
       end
       draw()
       end

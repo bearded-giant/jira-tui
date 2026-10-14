@@ -98,6 +98,21 @@ function M.parse_points(s)
   return n
 end
 
+-- jira duration ("1h 30m", "2d", "1h30m") -> normalized "1h 30m", or nil when malformed / zero
+function M.valid_duration(s)
+  local compact = (s or ""):lower():gsub("%s+", "")
+  if compact == "" then return nil end
+  local parts, pos, total = {}, 1, 0
+  while pos <= #compact do
+    local n, unit, nxt = compact:match("^(%d+)([wdhm])()", pos)
+    if not n then return nil end
+    parts[#parts + 1] = n .. unit
+    total = total + tonumber(n)
+    pos = nxt
+  end
+  return total > 0 and table.concat(parts, " ") or nil
+end
+
 function M.valid_key(s)
   local k = (s or ""):gsub("^%s+", ""):gsub("%s+$", ""):upper()
   return k:match("^%u[%u%d_]*%-%d+$") and k or nil

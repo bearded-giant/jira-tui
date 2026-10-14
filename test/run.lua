@@ -1400,6 +1400,42 @@ do
   eq(#calls(r.api, "get_transitions"), 1, "e change status: opens transitions")
 end
 
+-- ---- worklog (w) ----
+do
+  local api = require("jira_tui.api")
+  eq(model.valid_duration("1h 30m"), "1h 30m", "duration: spaced")
+  eq(model.valid_duration("1H30M"), "1h 30m", "duration: compact, case-insensitive")
+  eq(model.valid_duration(" 2d "), "2d", "duration: trimmed")
+  eq(model.valid_duration("1w 2d 3h 4m"), "1w 2d 3h 4m", "duration: all units")
+  eq(model.valid_duration("90"), nil, "duration: unit required")
+  eq(model.valid_duration("1x"), nil, "duration: unknown unit")
+  eq(model.valid_duration("0m"), nil, "duration: zero rejected")
+  eq(model.valid_duration("1h foo"), nil, "duration: trailing junk")
+  eq(model.valid_duration(""), nil, "duration: empty")
+
+  local log, restore = stub(api, { request = function() return {} end })
+  api.add_worklog("PE-1", "1m")
+  eq(log[1][3], "/rest/api/3/issue/PE-1/worklog", "add_worklog endpoint")
+  eq(log[1][4].timeSpent, "1m", "add_worklog body")
+  restore()
+
+  local row = { get_issue_row = function(key) return { key = key, summary = "alpha root", status = "To Do" } end }
+  local r = run_tui(keyseq("w", "1h30m", "enter"), { api = { add_worklog = function() return {} end }, sprint = row })
+  ok(r.ok, "w flow ok (" .. tostring(r.err) .. ")")
+  local wl = calls(r.api, "add_worklog")
+  eq(wl[1] and wl[1][2], "PE-1", "w: cursor row")
+  eq(wl[1] and wl[1][3], "1h 30m", "w: normalized duration sent")
+  ok(r.out:find("logged 1h 30m on PE-1", 1, true), "w: message")
+  r = run_tui(keyseq("w", "soon", "enter"), { api = { add_worklog = function() return {} end } })
+  eq(#calls(r.api, "add_worklog"), 0, "w: invalid -> no call")
+  ok(r.out:find("not a duration: soon", 1, true), "w: invalid message")
+  r = run_tui(keyseq("enter", "w", "5m", "enter", "q"), { sprint = row, api = {
+    add_worklog = function() return {} end,
+    get_issue = function() return { key = "PE-1", fields = { summary = "alpha root" } } end } })
+  eq(#calls(r.api, "add_worklog"), 1, "w in detail: logged")
+  ok(r.out:find("logged 5m on PE-1", 1, true), "w in detail: note")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

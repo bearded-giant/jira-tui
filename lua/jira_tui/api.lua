@@ -237,7 +237,7 @@ function M.create_issue(project_key, summary, issue_type, opts)
 end
 
 function M.add_worklog(issue_key, time_spent)
-  return curl_request("POST", "/rest/api/3/issue/" .. issue_key .. "/worklog", { timeSpent = time_spent })
+  return M.request("POST", "/rest/api/3/issue/" .. issue_key .. "/worklog", { timeSpent = time_spent })
 end
 
 -- download one attachment to a temp dir, return the local path.
