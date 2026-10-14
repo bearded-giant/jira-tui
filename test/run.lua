@@ -1492,6 +1492,28 @@ do
   ok(r.out:find("no links", 1, true), "L: no links note")
 end
 
+-- ---- gi go to issue ----
+do
+  eq(model.parse_issue_ref("PE-12"), "PE-12", "issue ref: key")
+  eq(model.parse_issue_ref(" pe-12 "), "PE-12", "issue ref: lowercase + spaces")
+  eq(model.parse_issue_ref("https://x.atlassian.net/browse/PE-12?focusedCommentId=9"), "PE-12", "issue ref: browse url")
+  eq(model.parse_issue_ref("https://x.atlassian.net/browse/pe-7"), "PE-7", "issue ref: url lowercase key")
+  eq(model.parse_issue_ref("hello"), nil, "issue ref: garbage")
+  eq(model.parse_issue_ref("https://x.atlassian.net/jira/your-work"), nil, "issue ref: url without key")
+  eq(model.parse_issue_ref(nil), nil, "issue ref: nil")
+
+  local r = run_tui(keyseq("g", "i", "ops-77", "enter", "q", "r"), { api = { get_issue = function(key)
+    return { key = key, fields = { summary = "far away", status = { name = "Done" } } } end } })
+  ok(r.ok, "gi flow ok (" .. tostring(r.err) .. ")")
+  eq((calls(r.api, "get_issue")[1] or {})[2], "OPS-77", "gi: fetches the parsed key")
+  ok(r.out:find("OPS-77  far away", 1, true), "gi: title from fields.summary")
+  eq(#r.loads, 2, "gi: no board load (only initial + r)")
+  eq(r.loads[2].view, "My Issues", "gi: board view unchanged")
+  r = run_tui(keyseq("g", "i", "nope", "enter"), { api = { get_issue = function() return {} end } })
+  eq(#calls(r.api, "get_issue"), 0, "gi: bad ref -> no fetch")
+  ok(r.out:find("not an issue key or url: nope", 1, true), "gi: bad ref message")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

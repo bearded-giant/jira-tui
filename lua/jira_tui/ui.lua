@@ -357,7 +357,7 @@ local HELP = {
     { "j / k", "Move (mouse wheel too)" }, { "⏎", "Open issue (expand if it has subtasks)" },
     { "Space / Tab / o", "Expand / collapse" }, { "Ctrl-d / Ctrl-u", "Half page down / up" },
     { "t", "Toggle all" }, { "/", "Filter loaded rows (summary / key, instant)" }, { "BS", "Clear filter" },
-    { "gg / G", "Top / bottom" }, { "x", "Show/hide resolved" },
+    { "gg / G", "Top / bottom" }, { "gi", "Go to issue by key or url (board stays put)" }, { "x", "Show/hide resolved" },
   } },
   { "Issue", {
     { "K / m", "Details + comments / raw markdown" },

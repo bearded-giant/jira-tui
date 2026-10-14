@@ -737,6 +737,12 @@ function M.run(opts)
           end
         elseif nk == "j" then edit_jql("New JQL")
         elseif nk == "c" then if n then create_flow(n.key:match("^(.-)%-%d+$"), n) end
+        elseif nk == "i" then
+          local ref = ui.input("Go to issue (key or url)", { width = 60 })
+          if ref and ref ~= "" then
+            local key = model.parse_issue_ref(ref)
+            if key then show_detail({ key = key }) else st.message = "not an issue key or url: " .. ref end
+          end
         elseif nk == "s" then
           -- menu is the rendered column table, so menu/columns/indicator can't drift
           local choice = ui.select("Sort by", render.COLUMNS, { format = function(c) return c.l end })

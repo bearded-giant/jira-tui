@@ -113,6 +113,12 @@ function M.valid_duration(s)
   return total > 0 and table.concat(parts, " ") or nil
 end
 
+-- "PE-12", "pe-12", or a browse url (…/browse/PE-12?focusedCommentId=…) -> "PE-12"; nil otherwise
+function M.parse_issue_ref(s)
+  s = s or ""
+  return M.valid_key(s:match("/browse/([%w_]+%-%d+)") or s)
+end
+
 -- parent, subtasks, then issue links (labelled from this issue's side) as { rel, key, summary, status }
 function M.related(fields)
   local out = {}
