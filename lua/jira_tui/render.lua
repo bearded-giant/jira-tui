@@ -243,6 +243,18 @@ function M.detail_text(issue, p_config, mode, comments, opts)
   end
   local function section(label) lines[#lines + 1] = ""; lines[#lines + 1] = rule(label); lines[#lines + 1] = "" end
 
+  local rel = model.related(f)
+  if #rel > 0 then
+    section("Links (" .. #rel .. ")")
+    for _, r in ipairs(rel) do
+      local sbg, sfg = status_bg(r.status)
+      lines[#lines + 1] = ansi.fgtext(ansi.fit(r.rel, 16), C.overlay) .. "  "
+        .. ansi.fgtext(ansi.fit(r.key, 12), C.sky, ansi.BOLD)
+        .. (r.status ~= "" and ansi.bgtext(" " .. r.status .. " ", sfg, sbg) .. " " or "")
+        .. ansi.fgtext(r.summary, C.text)
+    end
+  end
+
   local atts = type(f.attachment) == "table" and f.attachment or {}
   if #atts > 0 then
     section("Attachments (" .. #atts .. ")")

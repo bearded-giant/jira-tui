@@ -119,17 +119,18 @@ function M.run(opts)
   end
 
   -- after a mutation re-fetch just that row (~0.4s) instead of reloading the view (0.7-4s)
-  local function refresh_row(key, done_msg)
+  -- append: a created issue joins the current view; otherwise only rows already shown change,
+  -- so editing an issue opened from a link doesn't add it to the board
+  local function refresh_row(key, done_msg, append)
     st.detail_cache[key] = nil
     local row, err = sprint.get_issue_row(key)
     if not row then
       st.message, st.message_ok = done_msg .. "; row refresh failed: " .. (err or "?"), false
       return false
     end
-    model.upsert_row(st.raw, row)
-    for _, c in pairs(st.cache) do
-      if c.raw ~= st.raw then model.replace_row(c.raw, row) end
-    end
+    if append then model.upsert_row(st.raw, row) end
+    for _, c in pairs(st.cache) do model.replace_row(c.raw, row) end
+    model.replace_row(st.raw, row)
     rebuild(key)
     st.message, st.message_ok = done_msg, true
     return true
@@ -531,7 +532,7 @@ function M.run(opts)
     st.create_draft = nil
     local new_key = type(res) == "table" and res.key
     if not new_key then st.message, st.message_ok = "created issue", true; return end
-    refresh_row(new_key, "created " .. new_key)
+    refresh_row(new_key, "created " .. new_key, true)
   end
 
 
@@ -569,7 +570,7 @@ function M.run(opts)
         local i = step(st.cursor, dir)
         if i == st.cursor then return { note = dir > 0 and "last issue" or "first issue" } end
         st.cursor = i
-        return { nav = true }
+        return { nav = "step" }
       end
     end
     local acts = {
@@ -581,6 +582,14 @@ function M.run(opts)
       Y = wrap(function() yank(config.options.jira.base .. "/browse/" .. n.key, n.key .. " url") end),
       b = wrap(function() open_browser(n) end),
       ["]"] = nav(1), ["["] = nav(-1),
+      L = function()
+        local d = st.detail_cache[n.key]
+        local rel = d and model.related(d.issue.fields) or {}
+        if #rel == 0 then return { note = "no links" } end
+        local pick = ui.select("Links: " .. n.key, rel, { format = function(r)
+          return ansi.fit(r.rel, 16) .. "  " .. ansi.fit(r.key, 12) .. "  " .. r.summary end })
+        if pick then return { nav = { key = pick.key, summary = pick.summary } } end
+      end,
     }
     local d = st.detail_cache[n.key]
     local atts = d and type(d.issue.fields.attachment) == "table" and d.issue.fields.attachment or {}
@@ -598,8 +607,10 @@ function M.run(opts)
     return acts, #atts > 0
   end
 
-  -- ]/[ in the popup move the board cursor and reopen on the new row (loop, not recursion)
+  -- ]/[ in the popup move the board cursor and reopen on the new row; L opens a linked issue
+  -- on a stack that q unwinds before returning to the board (loop, not recursion)
   local function show_detail(n, mode)
+    local stack = {}
     while n do
       if not st.detail_cache[n.key] then st.message = "loading " .. n.key .. "…"; draw() end
       local d, err = fetch_detail(n.key)
@@ -612,7 +623,7 @@ function M.run(opts)
       st.in_detail = true
       local nav = ui.detail(title, text, {
         alt = alt, actions = acts,
-        hint = (has_atts and "o attachment   " or "") .. "s a A e d C w y Y b   ]/[ issue",
+        hint = (has_atts and "o attachment   " or "") .. "s a A e d C w y Y b   L links   ]/[ issue",
         reload = function()
           local d2 = fetch_detail(node.key)
           if not d2 then return end
@@ -621,8 +632,9 @@ function M.run(opts)
         end,
       })
       st.in_detail = false
-      if not nav then return end
-      n = cur_node()
+      if nav == "step" then stack = {}; n = cur_node()
+      elseif nav then stack[#stack + 1] = n; n = nav
+      else n = table.remove(stack) end
     end
   end
 

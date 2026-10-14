@@ -1436,6 +1436,62 @@ do
   ok(r.out:find("logged 5m on PE-1", 1, true), "w in detail: note")
 end
 
+-- ---- links section + L jump ----
+do
+  local render = require("jira_tui.render")
+  local function plain(x) return (x:gsub("\27%[[%d;]*m", "")) end
+  local function iss(key, summary, status) return { key = key, fields = { summary = summary, status = { name = status } } } end
+  local fields = {
+    summary = "alpha root", status = { name = "To Do" }, project = { key = "PE" },
+    parent = iss("PE-40", "the epic", "In Progress"),
+    subtasks = { iss("PE-41", "a sub", "Done") },
+    issuelinks = {
+      { type = { name = "Blocks", inward = "is blocked by", outward = "blocks" }, outwardIssue = iss("PE-50", "linked one", "To Do") },
+      { type = { name = "Blocks", inward = "is blocked by", outward = "blocks" }, inwardIssue = iss("OPS-9", "upstream", "Review") },
+    },
+  }
+  local rel = model.related(fields)
+  local got = {}
+  for _, r in ipairs(rel) do got[#got + 1] = r.rel .. ":" .. r.key end
+  eq(table.concat(got, ","), "parent:PE-40,subtask:PE-41,blocks:PE-50,is blocked by:OPS-9", "related: order + link sides")
+  eq(rel[3].status, "To Do", "related: status")
+  eq(#model.related({}), 0, "related: none")
+  local txt = plain(render.detail_text({ key = "PE-1", fields = fields }, {}, "fields", nil, { rule_w = 60 }))
+  ok(txt:find("Links (4)", 1, true), "detail: links section")
+  ok(txt:find("is blocked by%s+OPS%-9"), "detail: inward label")
+  ok(txt:find("blocks%s+PE%-50"), "detail: outward label")
+  ok(not plain(render.detail_text({ key = "X", fields = { summary = "s" } }, {}, "fields")):find("Links", 1, true),
+    "detail: no links section when empty")
+
+  local function getter(key)
+    if key == "PE-1" then return { key = "PE-1", fields = fields } end
+    return iss(key, key == "PE-50" and "linked one" or "other", "To Do")
+  end
+  local row = { get_issue_row = function(key) return { key = key, summary = "x", status = "To Do" } end }
+  local r = run_tui(keyseq("enter", "L", "j", "j", "enter", "q", "q", "s", "enter"), { sprint = row, api = {
+    get_issue = getter, get_transitions = function() return { { id = "5", name = "Go" } } end,
+    transition_issue = function() return true end } })
+  ok(r.ok, "L flow ok (" .. tostring(r.err) .. ")")
+  local seen = {}
+  for _, c in ipairs(calls(r.api, "get_issue")) do seen[#seen + 1] = c[2] end
+  eq(table.concat(seen, ","), "PE-1,PE-50", "L: linked issue fetched, origin served from cache on q")
+  local p50 = r.out:find("PE-50  linked one", 1, true)
+  ok(p50, "L: linked issue title drawn")
+  ok(p50 and r.out:find("PE-1  alpha root", p50, true), "L: q pops back to the origin issue")
+  eq((calls(r.api, "transition_issue")[1] or {})[2], "PE-1", "L: second q returns to board, cursor unchanged")
+
+  -- acting on a linked issue doesn't add it to the board
+  r = run_tui(keyseq("enter", "L", "j", "j", "enter", "A", "q", "q"), { sprint = row, api = {
+    get_issue = getter, myself = function() return { accountId = "m", displayName = "Me" } end,
+    assign_issue = function() return true end } })
+  ok(r.ok, "L act flow ok (" .. tostring(r.err) .. ")")
+  eq((calls(r.api, "assign_issue")[1] or {})[2], "PE-50", "L: actions target the linked issue")
+  ok(not r.out:find("(5)", 1, true), "L: linked issue not appended to board")
+
+  r = run_tui(keyseq("enter", "L", "q"), { api = { get_issue = function() return iss("PE-1", "alpha root", "To Do") end } })
+  ok(r.out:find("no links", 1, true), "L: no links note")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

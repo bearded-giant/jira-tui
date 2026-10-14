@@ -112,6 +112,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `c` (in detail) | expand / collapse comments (start collapsed) |
 | `o` (in detail) | pick an attachment, download and open it |
 | `]` / `[` (in detail) | next / previous issue in board order |
+| `L` (in detail) | jump to the parent, a subtask or a linked issue; `q` walks back |
 | `s` | change issue status |
 | `a` / `A` | assign (user picker, `/` searches every assignable user) / assign to me |
 | `/` (in any picker) | filter the list as you type; `Enter` keeps the filter, `Esc` clears it |
@@ -143,7 +144,7 @@ If the create fails (a typo in a field line, or Jira rejects it), the next `c` r
 
 Editing the full description opens it in your editor as markdown. Descriptions with things markdown can't carry back (tables, images, mentions, panels, colored text, nested lists and so on) are refused rather than silently flattened; use "Append description" on those. Points go to the project's `story_point_field`, so set that in `projects` if your Jira uses a different custom field than the default.
 
-`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C w y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
+`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, `L` jumps to anything in the Links section (parent, subtasks, linked issues) and `q` walks back through those jumps first, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C w y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
 
 ## Layout
 

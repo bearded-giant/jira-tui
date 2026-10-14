@@ -113,6 +113,26 @@ function M.valid_duration(s)
   return total > 0 and table.concat(parts, " ") or nil
 end
 
+-- parent, subtasks, then issue links (labelled from this issue's side) as { rel, key, summary, status }
+function M.related(fields)
+  local out = {}
+  local function add(rel, iss)
+    if type(iss) ~= "table" or not iss.key then return end
+    local f = type(iss.fields) == "table" and iss.fields or {}
+    out[#out + 1] = { rel = rel, key = iss.key, summary = f.summary or "",
+      status = type(f.status) == "table" and f.status.name or "" }
+  end
+  fields = fields or {}
+  add("parent", fields.parent)
+  for _, sub in ipairs(type(fields.subtasks) == "table" and fields.subtasks or {}) do add("subtask", sub) end
+  for _, l in ipairs(type(fields.issuelinks) == "table" and fields.issuelinks or {}) do
+    local t = type(l.type) == "table" and l.type or {}
+    if l.outwardIssue then add(t.outward or t.name or "links to", l.outwardIssue)
+    else add(t.inward or t.name or "links to", l.inwardIssue) end
+  end
+  return out
+end
+
 function M.valid_key(s)
   local k = (s or ""):gsub("^%s+", ""):gsub("%s+$", ""):upper()
   return k:match("^%u[%u%d_]*%-%d+$") and k or nil

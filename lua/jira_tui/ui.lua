@@ -277,7 +277,7 @@ end
 -- opts: alt = second text ("c" toggles, comments collapsed view),
 --       actions = { [key] = fn -> { note, reload, close, nav } | nil },
 --       reload = fn -> text, alt, title (nil keeps the current text), hint = footer hint for actions.
--- returns true when an action asked to navigate away, else nil.
+-- returns the nav value of the action that ended it, else nil (q / Esc).
 function M.detail(title, text, opts)
   M._dirty = true
   opts = opts or {}
@@ -331,7 +331,7 @@ function M.detail(title, text, opts)
       M._dirty = true
       note = res.note
       if res.close then return end
-      if res.nav then return true end
+      if res.nav then return res.nav end
       if res.reload and opts.reload then
         local t, a, ti = opts.reload()
         if t then
@@ -363,6 +363,7 @@ local HELP = {
     { "K / m", "Details + comments / raw markdown" },
     { "c / o (detail)", "Expand comments / open attachment" },
     { "] / [ (detail)", "Next / prev issue in board order" },
+    { "L (detail)", "Jump to parent / subtask / linked issue (q comes back)" },
     { "in detail", "s a A e d C w y Y b act on the shown issue" }, { "s", "Change status" },
     { "e", "Edit summary, description, priority, points, labels, parent, status" },
     { "c / gc", "Create (type picker, $EDITOR template) / child of the row" },
