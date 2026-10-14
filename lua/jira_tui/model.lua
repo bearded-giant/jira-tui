@@ -24,14 +24,12 @@ function M.build_issue_tree(issues)
   return roots
 end
 
--- replace the row with row.key in place; index or nil when absent
 function M.replace_row(raw, row)
   for i, r in ipairs(raw) do
     if r.key == row.key then raw[i] = row; return i end
   end
 end
 
--- replace the row with row.key in place, else append. returns its index.
 function M.upsert_row(raw, row)
   local i = M.replace_row(raw, row)
   if i then return i end
@@ -39,13 +37,11 @@ function M.upsert_row(raw, row)
   return #raw
 end
 
--- ttl seconds; 0 / nil disables
 function M.cache_fresh(entry, ttl, now)
   return entry ~= nil and (ttl or 0) > 0 and now - entry.at < ttl
 end
 
--- embedded fields.comment is oldest first and capped (100). returns up to n newest first,
--- plus true when total > page, i.e. the newest comments aren't in it.
+-- embedded fields.comment is oldest first and capped at 100, so total > page means the newest are missing
 function M.recent_comments(field, n)
   if type(field) ~= "table" or type(field.comments) ~= "table" then return {}, false end
   local cs, out = field.comments, {}
@@ -98,7 +94,6 @@ function M.parse_points(s)
   return n
 end
 
--- jira duration ("1h 30m", "2d", "1h30m") -> normalized "1h 30m", or nil when malformed / zero
 function M.valid_duration(s)
   local compact = (s or ""):lower():gsub("%s+", "")
   if compact == "" then return nil end
@@ -113,13 +108,11 @@ function M.valid_duration(s)
   return total > 0 and table.concat(parts, " ") or nil
 end
 
--- "PE-12", "pe-12", or a browse url (…/browse/PE-12?focusedCommentId=…) -> "PE-12"; nil otherwise
 function M.parse_issue_ref(s)
   s = s or ""
   return M.valid_key(s:match("/browse/([%w_]+%-%d+)") or s)
 end
 
--- parent, subtasks, then issue links (labelled from this issue's side) as { rel, key, summary, status }
 function M.related(fields)
   local out = {}
   local function add(rel, iss)
@@ -144,8 +137,7 @@ function M.valid_key(s)
   return k:match("^%u[%u%d_]*%-%d+$") and k or nil
 end
 
--- true when markdown can't carry this doc through an edit (adf -> markdown -> adf) unchanged.
--- whitelist of what md.to_adf rebuilds, so unknown node types count as lossy too.
+-- whitelist of what md.to_adf rebuilds, so unknown node types count as lossy too
 local SAFE_NODES = { doc = true, paragraph = true, text = true, hardBreak = true, heading = true, bulletList = true,
   orderedList = true, listItem = true, codeBlock = true, blockquote = true, rule = true }
 local SAFE_MARKS = { strong = true, em = true, code = true, strike = true, link = true }
@@ -168,9 +160,6 @@ end
 M.CREATE_TEMPLATE = "\nlabels: \npoints: \npriority: \n---\n"
 local CREATE_FIELDS = { labels = true, points = true, priority = true }
 
--- create template -> { summary, labels, points, priority, description } or nil, err.
--- line 1 = summary; "key: value" lines up to "---" are fields; the rest is the markdown body.
--- without "---" everything after line 1 is the body.
 function M.parse_create(text)
   local lines = {}
   for l in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = l end
@@ -198,8 +187,6 @@ function M.parse_create(text)
   return out
 end
 
--- client-side board filter. whitespace-separated tokens, all must hit (case-insensitive substring):
--- @x assignee, s:x status, t:x type, p:x priority, l:x any label, anything else summary or key
 local FILTER_FIELDS = { s = "status", t = "type", p = "priority" }
 function M.matches(issue, filter)
   if not filter or filter == "" then return true end

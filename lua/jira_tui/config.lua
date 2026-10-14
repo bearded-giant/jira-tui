@@ -16,8 +16,7 @@ M.options = {
 
 local BUILTIN_VIEWS = { ["My Issues"] = true, JQL = true, ["Active Sprint"] = true, Backlog = true, Help = true }
 
--- saved query tabs: { name, jql, key? }. key defaults to the 1-based position (1-9).
--- the name is the view id, so it can't shadow a built-in view or the "JQL:" prefix.
+-- the name doubles as the view id, so it can't shadow a built-in view or the "JQL:" prefix
 function M.parse_queries(qs)
   local out, names, keys = {}, {}, {}
   for i, q in ipairs(qs or {}) do

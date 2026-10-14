@@ -60,8 +60,6 @@ function M.to_ansi(text)
   return table.concat(out, "\n")
 end
 
--- ---- markdown -> adf (jira's document format) ----
-
 local function text_node(t, marks)
   local n = { type = "text", text = t }
   if marks then n.marks = marks end
@@ -70,8 +68,7 @@ end
 
 local function alnum(ch) return ch ~= "" and ch:match("[%w]") ~= nil end
 
--- inline markdown -> adf text nodes. no nesting: a marked span's inside is literal.
--- _em_ needs non-word chars around it so snake_case survives.
+-- _em_ needs non-word chars around it so snake_case survives
 local function inline_adf(s)
   local out, plain, i = {}, {}, 1
   local function flush()
@@ -124,8 +121,6 @@ local function list(kind, items)
   return { type = kind, content = content }
 end
 
--- markdown -> adf doc, nil for blank input. blocks: paragraphs, # headings, -/* and 1.
--- lists (one level), ``` fences, > quotes, --- rules.
 function M.to_adf(text)
   if not text or not text:match("%S") then return nil end
   local lines = {}

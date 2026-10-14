@@ -156,8 +156,6 @@ M._run_editor = function(path)
   os.execute(ed .. " " .. shq(path))
 end
 
--- edit text in the user's editor, outside raw mode + alt screen.
--- returns the new text, or nil when blank, unchanged, or the temp file failed.
 function M.edit_external(initial, ext)
   initial = initial or ""
   local p = io.popen("umask 077; mktemp 2>/dev/null")
@@ -185,9 +183,7 @@ function M.edit_external(initial, ext)
 end
 
 -- select modal. items list, opts.format(item)->string, opts.keys {key = action}
--- + opts.hint for extra actions. "/" filters by case-insensitive substring; with
--- opts.on_filter(q) -> items, Enter in filter mode asks it for a new list instead.
--- returns item, index, action (nil on Enter) or nil.
+-- + opts.hint for extra actions. returns item, index, action (nil on Enter) or nil.
 function M.select(title, items, opts)
   M._dirty = true
   opts = opts or {}

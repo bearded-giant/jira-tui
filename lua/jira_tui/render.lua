@@ -9,7 +9,6 @@ local GUTTER = 2     -- selection bar / spaces
 local ROOT_PREFIX = 3 -- chevron + icon + space, before the key (icon sits next to key)
 local CHILD_INDENT = 4 -- spaces per nesting level for subtasks
 
--- status width follows the loaded rows (status_width); 14 until the first rebuild
 M.COL = {
   key = 12, assignee = 12, created = 12, age = 6, status = 14,
   updated = 7, priority = 9, points = 6, labels = 16,
@@ -28,7 +27,6 @@ M.ALL_COLUMNS = {
 }
 M.DEFAULT_COLUMNS = { "key", "summary", "assignee", "created", "age", "status" }
 
--- active column order (config `columns`); also the gs sort menu
 function M.set_columns(names)
   local cols = {}
   local have = {}
@@ -79,8 +77,6 @@ M.TABS = { -- order + hint key, matches jim
   { name = "Help", key = "H" },
 }
 
--- strip order: My Issues, saved queries, then the built-ins. hidden drops built-ins,
--- never My Issues or Help.
 function M.tabs(queries, hidden)
   local out = { M.TABS[1] }
   for _, q in ipairs(queries or {}) do out[#out + 1] = { name = q.name, key = q.key } end

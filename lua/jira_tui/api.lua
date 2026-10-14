@@ -109,7 +109,6 @@ end
 
 M.request = curl_request
 
--- fields behind a board row (sprint map_issue)
 function M.row_fields(project_key)
   return {
     "summary", "status", "parent", "priority", "assignee", "reporter",
@@ -216,8 +215,6 @@ function M.get_create_types(project)
   return res.issueTypes
 end
 
--- issue_type: a createmeta type ({ id = ... }) or a type name.
--- opts: description (markdown), assignee_account_id, parent (key), labels, points, priority (name)
 function M.create_issue(project_key, summary, issue_type, opts)
   opts = opts or {}
   local fields = {

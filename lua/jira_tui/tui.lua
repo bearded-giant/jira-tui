@@ -119,8 +119,7 @@ function M.run(opts)
   end
 
   -- after a mutation re-fetch just that row (~0.4s) instead of reloading the view (0.7-4s)
-  -- append: a created issue joins the current view; otherwise only rows already shown change,
-  -- so editing an issue opened from a link doesn't add it to the board
+  -- only create appends: an issue opened from a link and then edited must not land on the board
   local function refresh_row(key, done_msg, append)
     st.detail_cache[key] = nil
     local row, err = sprint.get_issue_row(key)
@@ -140,7 +139,8 @@ function M.run(opts)
   -- a cursor move repaints ~2 rows, not the whole screen -> no flicker, cheap.
   st.prev = st.prev or {}
   draw = function()
-    if st.in_detail then return end -- handlers run under the detail popup; don't paint over it
+    -- handlers also run under the detail popup; painting the board there would cover it
+    if st.in_detail then return end
     local rows, cols = term.size()
     local full = false
     if rows ~= st.rows or cols ~= st.cols or ui.consume_dirty() then
@@ -281,7 +281,6 @@ function M.run(opts)
   local DETAIL_FIELDS = { "summary", "status", "issuetype", "priority", "assignee", "reporter", "parent",
     "created", "updated", "description", "attachment", "comment", "issuelinks", "subtasks", "labels", "project" }
 
-  -- issue + embedded comments in one request; cached per key until refresh_row or r
   local function fetch_detail(key)
     if st.detail_cache[key] then return st.detail_cache[key] end
     local pcfg = config.get_project_config(key:match("^(.-)%-%d+$"))
@@ -494,9 +493,7 @@ function M.run(opts)
     st.message, st.message_ok = "commented on " .. n.key, true
   end
 
-  -- c: pick a type in project. gc (parent row given): child of that row; an epic takes
-  -- standard types, anything else takes sub-task types, and a sub-task row adds a sibling.
-  -- a failed create keeps the text as the next template so nothing typed is lost.
+  -- a failed create keeps the text as the next template so nothing typed is lost
   local function create_flow(project, parent)
     st.message = "loading issue types for " .. project .. "…"; draw()
     local types, terr = api.get_create_types(project)
@@ -536,7 +533,6 @@ function M.run(opts)
   end
 
 
-  -- detail body for the current fetch: title, text, alt (comments expanded), attachments
   local function detail_view(n, d, mode)
     local issue, comments = d.issue, d.comments
     local project = type(issue.fields.project) == "table" and issue.fields.project.key or n.key:match("^(.-)%-")
@@ -553,8 +549,7 @@ function M.run(opts)
     return title, text, alt
   end
 
-  -- detail keys reuse the board handlers. their messages become the popup's footer note,
-  -- and a handler that invalidated this key's detail cache (a mutation) triggers a reload.
+  -- a handler that invalidated this key's detail cache mutated the issue, so the popup reloads
   local function detail_actions(n)
     local function wrap(fn)
       return function()
@@ -607,8 +602,7 @@ function M.run(opts)
     return acts, #atts > 0
   end
 
-  -- ]/[ in the popup move the board cursor and reopen on the new row; L opens a linked issue
-  -- on a stack that q unwinds before returning to the board (loop, not recursion)
+  -- a loop, not recursion: ]/[ and L reopen the popup on another issue, q unwinds L jumps first
   local function show_detail(n, mode)
     local stack = {}
     while n do
