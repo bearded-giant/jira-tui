@@ -106,6 +106,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `d` | close issue via the first done-ish transition |
 | `c` (in detail) | expand / collapse comments (start collapsed) |
 | `o` (in detail) | pick an attachment, download and open it |
+| `]` / `[` (in detail) | next / previous issue in board order |
 | `s` | change issue status |
 | `a` / `A` | assign (user picker) / assign to me |
 | `C` | comment: opens `$VISUAL` / `$EDITOR` (falls back to `nvim`, then `vi`), posts what you write as markdown |
@@ -117,7 +118,7 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `q` | back: closes detail / help / pickers, never the app |
 | `Esc` | quit |
 
-`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), and `q` returns to the board.
+`/` opens a prompt; submit empty to clear the filter. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
 
 ## Layout
 

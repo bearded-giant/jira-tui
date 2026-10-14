@@ -234,9 +234,11 @@ function M.detail_width(cols)
   return math.min(math.max(96, math.floor(cols * 0.7)), cols - 2)
 end
 
--- scrollable read-only detail box. text may contain newlines.
+-- scrollable detail box. text may contain newlines.
 -- opts: alt = second text ("c" toggles, comments collapsed view),
---       on_open = called on "o" (attachments); may return a footer note.
+--       actions = { [key] = fn -> { note, reload, close, nav } | nil },
+--       reload = fn -> text, alt, title (nil keeps the current text), hint = footer hint for actions.
+-- returns true when an action asked to navigate away, else nil.
 function M.detail(title, text, opts)
   M._dirty = true
   opts = opts or {}
@@ -266,7 +268,7 @@ function M.detail(title, text, opts)
     elseif scroll >= #lines - body then pos = "bot"
     else pos = math.floor((scroll + body) / #lines * 100) .. "%" end
     local hints = " j/k scroll"
-      .. (opts.alt and "   c comments" or "") .. (opts.on_open and "   o attachment" or "")
+      .. (opts.alt and "   c comments" or "") .. (opts.hint and "   " .. opts.hint or "")
       .. "   q back   " .. (note and note .. "   " or "") .. pos .. " "
     term.moveto(top + h - 1, left + 2)
     term.out(ansi.fgtext(ansi.truncate(hints, w - 4), C.overlay))
@@ -284,9 +286,22 @@ function M.detail(title, text, opts)
       lines = build(alt_shown and opts.alt or text)
       scroll = math.min(scroll, math.max(0, #lines - body))
     end
-    if k == "o" and opts.on_open then
-      note = opts.on_open()
+    local act = opts.actions and opts.actions[k]
+    if act then
+      local res = act() or {}
       M._dirty = true
+      note = res.note
+      if res.close then return end
+      if res.nav then return true end
+      if res.reload and opts.reload then
+        local t, a, ti = opts.reload()
+        if t then
+          text, opts.alt, title = t, a, ti or title
+          if not a then alt_shown = false end
+          lines = build(alt_shown and a or t)
+          scroll = math.min(scroll, math.max(0, #lines - body))
+        end
+      end
     end
   end
 end
@@ -307,7 +322,9 @@ local HELP = {
   } },
   { "Issue", {
     { "K / m", "Details + comments / raw markdown" },
-    { "c / o (detail)", "Expand comments / open attachment" }, { "s", "Change status" },
+    { "c / o (detail)", "Expand comments / open attachment" },
+    { "] / [ (detail)", "Next / prev issue in board order" },
+    { "in detail", "s a A e d C y Y b act on the shown issue" }, { "s", "Change status" },
     { "e", "Edit (summary / append description / status)" },
     { "c / d", "Create story / close (first done-ish transition)" },
     { "a / A", "Assign (picker) / assign to me" }, { "C", "Comment ($EDITOR, markdown)" }, { "b / gx", "Open in browser" },

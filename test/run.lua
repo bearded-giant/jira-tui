@@ -1072,6 +1072,55 @@ do
   ok(r.out:find("comment failed: http 403", 1, true), "C: failure surfaced")
 end
 
+-- ---- actionable detail popup ----
+do
+  local function issue_for(key)
+    for _, r in ipairs(TUI_FIXTURE) do
+      if r.key == key then
+        return { key = key, fields = { summary = r.summary, status = { name = r.status }, project = { key = "PE" } } }
+      end
+    end
+  end
+  local base_api = {
+    get_issue = function(key) return issue_for(key) end,
+    get_transitions = function() return { { id = "11", name = "To Do" }, { id = "21", name = "Start", to = { name = "In Progress" } } } end,
+    transition_issue = function() return true end,
+  }
+  local row = { get_issue_row = function(key) return { key = key, summary = "alpha root", status = "In Progress" } end }
+
+  -- s inside detail: transition sent, detail refetched, popup stays up, board doesn't paint the message
+  local r = run_tui(keyseq("enter", "s", "j", "enter", "q"), { api = base_api, sprint = row })
+  ok(r.ok, "detail s flow ok (" .. tostring(r.err) .. ")")
+  local tr = calls(r.api, "transition_issue")
+  eq(#tr, 1, "detail s: one transition")
+  eq(tr[1] and tr[1][2], "PE-1", "detail s: acts on shown issue")
+  eq(#calls(r.api, "get_issue"), 2, "detail s: detail refetched after mutation")
+  ok(r.out:find("   PE-1 → In Progress   ", 1, true), "detail s: handler message shown as popup note")
+  ok(not r.out:find("moving PE-1", 1, true), "detail s: board footer not painted while popup is up")
+
+  -- ] / [ walk board order (skipping spacers), q leaves cursor on the last viewed issue
+  r = run_tui(keyseq("enter", "]", "]", "[", "q", "s", "enter"), { api = base_api, sprint = row })
+  ok(r.ok, "detail nav flow ok (" .. tostring(r.err) .. ")")
+  local keys_seen = {}
+  for _, c in ipairs(calls(r.api, "get_issue")) do keys_seen[#keys_seen + 1] = c[2] end
+  eq(table.concat(keys_seen, ","), "PE-1,PE-2,PE-3", "detail nav: ] ] [ fetches next issues, [ served from cache")
+  ok(r.out:find("PE-3  gamma child", 1, true), "detail nav: next issue title drawn")
+  tr = calls(r.api, "transition_issue")
+  eq(tr[1] and tr[1][2], "PE-2", "detail nav: q returns with cursor on last viewed (PE-2)")
+
+  -- [ on the first row stays put with a note
+  r = run_tui(keyseq("enter", "[", "q"), { api = base_api })
+  eq(#calls(r.api, "get_issue"), 1, "detail nav: [ on first row doesn't move")
+  ok(r.out:find("first issue", 1, true), "detail nav: first issue note")
+
+  -- C from the popup posts and reloads with the new comment
+  r = run_tui(keyseq("enter", "C", "q"), { api = {
+    get_issue = function(key) return issue_for(key) end, add_comment = function() return { id = "1" } end },
+    ui = { edit_external = function() return "hi" end } })
+  eq(#calls(r.api, "add_comment"), 1, "detail C: comment posted")
+  eq(#calls(r.api, "get_issue"), 2, "detail C: reloaded after comment")
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

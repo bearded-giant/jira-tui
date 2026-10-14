@@ -136,6 +136,7 @@ function M.run(opts)
   -- a cursor move repaints ~2 rows, not the whole screen -> no flicker, cheap.
   st.prev = st.prev or {}
   draw = function()
+    if st.in_detail then return end -- handlers run under the detail popup; don't paint over it
     local rows, cols = term.size()
     local full = false
     if rows ~= st.rows or cols ~= st.cols or ui.consume_dirty() then
@@ -296,44 +297,6 @@ function M.run(opts)
     return st.detail_cache[key]
   end
 
-  local function show_detail(n, mode)
-    if not n then return end
-    if not st.detail_cache[n.key] then st.message = "loading " .. n.key .. "…"; draw() end
-    local d, err = fetch_detail(n.key)
-    st.message = nil
-    if not d then st.message = n.key .. ": " .. err; return end
-    local issue, comments = d.issue, d.comments
-    draw() -- clear the "loading" footer before the popup covers the board
-    local project = type(issue.fields.project) == "table" and issue.fields.project.key or n.key:match("^(.-)%-")
-    local pcfg = config.get_project_config(project)
-    local title = n.key .. "  " .. (n.summary or "")
-    if mode == "markdown" then
-      ui.detail(title, render.detail_text(issue, pcfg, mode))
-      return
-    end
-    local _, tcols = term.size()
-    local rule_w = ui.detail_width(tcols) - 4
-    local text = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w, comments_collapsed = true })
-    local alt
-    if comments and #comments > 0 then
-      alt = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w })
-    end
-    local atts = type(issue.fields.attachment) == "table" and issue.fields.attachment or {}
-    local on_open
-    if #atts > 0 then
-      on_open = function()
-        local a = ui.select("Attachments: " .. n.key, atts, { format = function(x)
-          return (x.filename or "?") .. "   " .. (x.mimeType or "") end })
-        if not a then return end
-        local path, derr = api.download_attachment(a)
-        if not path then return "download failed: " .. (derr or "?") end
-        os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", path, path))
-        return "opened " .. path:match("([^/]+)$")
-      end
-    end
-    ui.detail(title, text, { alt = alt, on_open = on_open })
-  end
-
   -- clipboard chain; honest success only
   local function yank(txt, what)
     local copied = false
@@ -474,6 +437,96 @@ function M.run(opts)
     refresh_row(new_key, "created " .. new_key)
   end
 
+
+  -- detail body for the current fetch: title, text, alt (comments expanded), attachments
+  local function detail_view(n, d, mode)
+    local issue, comments = d.issue, d.comments
+    local project = type(issue.fields.project) == "table" and issue.fields.project.key or n.key:match("^(.-)%-")
+    local pcfg = config.get_project_config(project)
+    local title = n.key .. "  " .. (issue.fields.summary or n.summary or "")
+    if mode == "markdown" then return title, render.detail_text(issue, pcfg, mode) end
+    local _, tcols = term.size()
+    local rule_w = ui.detail_width(tcols) - 4
+    local text = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w, comments_collapsed = true })
+    local alt
+    if comments and #comments > 0 then
+      alt = render.detail_text(issue, pcfg, mode, comments, { rule_w = rule_w })
+    end
+    return title, text, alt
+  end
+
+  -- detail keys reuse the board handlers. their messages become the popup's footer note,
+  -- and a handler that invalidated this key's detail cache (a mutation) triggers a reload.
+  local function detail_actions(n)
+    local function wrap(fn)
+      return function()
+        st.message = nil
+        fn()
+        local note = st.message
+        st.message = nil
+        return { note = note, reload = st.detail_cache[n.key] == nil }
+      end
+    end
+    local function nav(dir)
+      return function()
+        local i = step(st.cursor, dir)
+        if i == st.cursor then return { note = dir > 0 and "last issue" or "first issue" } end
+        st.cursor = i
+        return { nav = true }
+      end
+    end
+    local acts = {
+      s = wrap(function() change_status(n) end), a = wrap(function() assign_picker(n) end),
+      A = wrap(function() assign_me(n) end), e = wrap(function() edit_issue(n) end),
+      d = wrap(function() close_issue(n) end), C = wrap(function() comment_on(n) end),
+      y = wrap(function() yank(n.key, n.key) end),
+      Y = wrap(function() yank(config.options.jira.base .. "/browse/" .. n.key, n.key .. " url") end),
+      b = wrap(function() open_browser(n) end),
+      ["]"] = nav(1), ["["] = nav(-1),
+    }
+    local d = st.detail_cache[n.key]
+    local atts = d and type(d.issue.fields.attachment) == "table" and d.issue.fields.attachment or {}
+    if #atts > 0 then
+      acts.o = function()
+        local a = ui.select("Attachments: " .. n.key, atts, { format = function(x)
+          return (x.filename or "?") .. "   " .. (x.mimeType or "") end })
+        if not a then return end
+        local path, derr = api.download_attachment(a)
+        if not path then return { note = "download failed: " .. (derr or "?") } end
+        os.execute(string.format("(open %q || xdg-open %q) >/dev/null 2>&1 &", path, path))
+        return { note = "opened " .. path:match("([^/]+)$") }
+      end
+    end
+    return acts, #atts > 0
+  end
+
+  -- ]/[ in the popup move the board cursor and reopen on the new row (loop, not recursion)
+  local function show_detail(n, mode)
+    while n do
+      if not st.detail_cache[n.key] then st.message = "loading " .. n.key .. "…"; draw() end
+      local d, err = fetch_detail(n.key)
+      st.message = nil
+      if not d then st.message = n.key .. ": " .. err; return end
+      draw() -- clear the "loading" footer before the popup covers the board
+      local title, text, alt = detail_view(n, d, mode)
+      local acts, has_atts = detail_actions(n)
+      local node = n
+      st.in_detail = true
+      local nav = ui.detail(title, text, {
+        alt = alt, actions = acts,
+        hint = (has_atts and "o attachment   " or "") .. "s a A e d C y Y b   ]/[ issue",
+        reload = function()
+          local d2 = fetch_detail(node.key)
+          if not d2 then return end
+          local t2, x2, a2 = detail_view(node, d2, mode)
+          return x2, a2, t2
+        end,
+      })
+      st.in_detail = false
+      if not nav then return end
+      n = cur_node()
+    end
+  end
 
   local interactive = term.isatty()
   term.raw_on(); term.enter(); term.clear()
