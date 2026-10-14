@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml)
 
-A standalone terminal UI for Jira: sprint board, backlog, and JQL queries rendered as an expandable issue tree. Browse your work without leaving the terminal.
+A standalone terminal UI for Jira: your issues, saved queries, sprint board, backlog and ad-hoc JQL rendered as an expandable issue tree. Read, triage, edit, create, comment and log work without leaving the terminal.
 
 ## Requirements
 
@@ -29,8 +29,9 @@ return {
     email = "you@example.com",
     limit = 500,
   },
+  -- per-project custom fields (story points, acceptance criteria)
   projects = {
-    REF = { story_point_field = "customfield_10035" },
+    REF = { story_point_field = "customfield_10035", acceptance_criteria_field = "customfield_10016" },
   },
   -- scope the My Issues view to these projects (empty = all projects)
   my_issues_projects = { "ABC", "DEF" },
@@ -90,40 +91,38 @@ A project key is only needed for the sprint and backlog views. With no arguments
 
 ### Keys
 
+On the board:
+
 | Key | Action |
 |-----|--------|
 | `j` / `k` (or arrows, mouse wheel) | move cursor; clicking a row selects it |
 | `gg` / `G` | top / bottom |
-| `gi` | go to an issue by key or pasted browse url; opens its detail without touching the board |
-| `enter` | open issue detail (expands the node if it has subtasks) |
-| `space` / `tab` / `o` | expand / collapse node |
 | `ctrl-d` / `ctrl-u` | half page down / up |
+| `enter` | open issue detail (expands the node instead if it has subtasks) |
+| `space` / `tab` / `o` | expand / collapse node |
 | `t` | toggle all |
 | `M` | My Issues (assigned to you) |
 | `1`-`9` | jump to a saved query tab (see `queries` in the config) |
 | `S` / `B` | Active Sprint / Backlog |
+| `←` / `→` | cycle tabs |
 | `p` | set / change the project (for sprint + backlog) |
-| `J` | JQL picker (history, or new query; `e` edits the selected query) · `gj` new query |
-| `gs` | sort by column |
-| `/` | filter loaded rows (instant, no refetch) · `BS` clear |
+| `J` | JQL picker (history, or new query; `e` edits the selected query) |
+| `gj` | new JQL query |
+| `gi` | go to an issue by key or pasted browse url; opens its detail without touching the board |
+| `/` | filter loaded rows (instant, no refetch); `BS` clears it |
 | `x` | show / hide resolved |
+| `gs` | sort by column |
 | `K` / `m` | issue detail with comments / raw markdown |
-| `e` | edit issue: summary, description (in your editor), append to description, priority, points, labels, parent, or status |
+| `s` | change status |
+| `e` | edit: summary, description (in your editor), append to description, priority, points, labels, parent, or status |
+| `a` / `A` | assign (user picker) / assign to me |
+| `C` | comment in your editor, posted as markdown |
+| `w` | log work (`1h 30m`, `2d`, `45m`) |
 | `c` | create an issue in the current project: pick a type, then fill the template in your editor (assigned to you) |
-| `gc` | create a child of the selected row: sub-task under a story/task, standard type under an epic |
-| `d` | close issue via the first done-ish transition |
-| `c` (in detail) | expand / collapse comments (start collapsed) |
-| `o` (in detail) | pick an attachment, download and open it |
-| `]` / `[` (in detail) | next / previous issue in board order |
-| `L` (in detail) | jump to the parent, a subtask or a linked issue; `q` walks back |
-| `/` `n` `N` (in detail) | search the issue text; next / previous match (wraps) |
-| `s` | change issue status |
-| `a` / `A` | assign (user picker, `/` searches every assignable user) / assign to me |
-| `/` (in any picker) | filter the list as you type; `Enter` keeps the filter, `Esc` clears it |
-| `w` | log work on the issue (`1h 30m`, `2d`, `45m`) |
-| `C` | comment: opens `$VISUAL` / `$EDITOR` (falls back to `nvim`, then `vi`), posts what you write as markdown |
-| `b` / `gx` | open issue in browser |
-| `y` / `Y` | copy issue key / url |
+| `gc` | create a child of the selected row: sub-task under a story or task, standard type under an epic |
+| `d` | close via the first done-ish transition |
+| `b` / `gx` | open in browser |
+| `y` / `Y` | copy key / url |
 | `gb` | copy a git branch name (`pe-1472-add-rate-limit`) |
 | `r` | refresh, skipping the view cache (keeps cursor and filter) |
 | `?` / `H` | help |
@@ -131,7 +130,41 @@ A project key is only needed for the sprint and backlog views. With no arguments
 | `Esc` | cancel a running load, else clear the filter, else clear the footer message, else arm quit; a second `Esc` quits |
 | `ctrl-c` | quit immediately |
 
-Creating opens your editor on a small template. The first line is the summary, the `labels:`, `points:` and `priority:` lines are optional (leave them blank to skip), and everything under `---` is the description in markdown:
+In the detail view:
+
+| Key | Action |
+|-----|--------|
+| `j` / `k`, `ctrl-d` / `ctrl-u`, `g` / `G` | scroll, page, top / bottom |
+| `c` | expand / collapse comments (they start collapsed) |
+| `o` | pick an attachment, download it and open it |
+| `]` / `[` | next / previous issue in board order |
+| `L` | jump to the parent, a subtask or a linked issue |
+| `/` `n` `N` | search the issue text; next / previous match (wraps) |
+| `s` `a` `A` `e` `d` `C` `w` `y` `Y` `b` | same as on the board, acting on the issue you're reading |
+| `q` | back: undoes `L` jumps first, then returns to the board |
+
+In pickers and prompts:
+
+| Key | Action |
+|-----|--------|
+| `j` / `k`, `enter` | move, pick |
+| `/` | filter the list as you type; `enter` keeps the filter, `Esc` clears it. In the assign picker `enter` searches every assignable user on the server |
+| `Esc` / `q` | cancel |
+| `ctrl-s` | submit a multi-line prompt (JQL editor, append description) |
+
+### Filtering
+
+`/` opens a prompt; submit it empty to clear the filter. Every word has to match. Plain words look at the summary and key; `@ann` matches the assignee, `s:review` the status, `t:bug` the type, `p:high` the priority and `l:perf` any label, all as case-insensitive substrings. So `@ann s:prog cache` is Ann's in-progress issues that mention cache. The filter runs over rows already fetched, so it's instant; on a view cut off by the fetch limit (the `+` in the title count) it only searches what was fetched.
+
+### Reading an issue
+
+The detail view shows the fields up top, then a Links section (parent, subtasks, linked issues with their status), attachments, the description and acceptance criteria rendered from Jira's markdown, and the newest comments. Everything you can do to an issue on the board works here too, and anything that changes the issue reloads the view in place. `]` and `[` walk the board without closing the popup, and when you `q` out the board cursor sits on whatever you looked at last.
+
+### Writing
+
+Comments, full description edits and new issues all open your editor: `$VISUAL`, else `$EDITOR`, else `nvim`, else `vi`. What you write is markdown, converted to Jira's format on the way out: paragraphs, headings, bullet and numbered lists, fenced code with a language, quotes, rules, bold, italic, inline code, strikethrough and links.
+
+Creating opens a small template. The first line is the summary, the `labels:`, `points:` and `priority:` lines are optional (leave them blank to skip), and everything under `---` is the description:
 
 ```
 Rate limit the export endpoint
@@ -147,9 +180,7 @@ Exports hammer the DB when a big store runs them back to back.
 
 If the create fails (a typo in a field line, or Jira rejects it), the next `c` reopens your draft so nothing is lost.
 
-Editing the full description opens it in your editor as markdown. Descriptions with things markdown can't carry back (tables, images, mentions, panels, colored text, nested lists and so on) are refused rather than silently flattened; use "Append description" on those. Points go to the project's `story_point_field`, so set that in `projects` if your Jira uses a different custom field than the default.
-
-`/` opens a prompt; submit empty to clear the filter. Every word has to match. Plain words look at the summary and key; `@ann` matches the assignee, `s:review` the status, `t:bug` the type, `p:high` the priority and `l:perf` any label, all as case-insensitive substrings. So `@ann s:prog cache` is Ann's in-progress issues mentioning cache. The filter is applied to already-fetched rows, so it is instant; on a view truncated by the fetch limit (the `+` in the title count) it only searches what was fetched. In the detail view, `j`/`k` scroll, `ctrl-d`/`ctrl-u` page, `c` expands the comments (collapsed by default), `o` opens an attachment (downloaded to a temp dir, then handed to `open`/`xdg-open`), `]` and `[` step to the next or previous issue on the board, `L` jumps to anything in the Links section (parent, subtasks, linked issues) and `q` walks back through those jumps first, and `q` returns to the board with the cursor on whatever you looked at last. The issue keys `s a A e d C w y Y b` work inside the detail view too and act on the issue you're reading; anything that changes it reloads the view in place.
+Editing the full description opens it as markdown. Descriptions holding things markdown can't carry back (tables, images, mentions, panels, colored text, nested lists and so on) are refused rather than silently flattened; use "Append description" on those. Points go to the project's `story_point_field`, so set that under `projects` if your Jira keeps story points in a different custom field than the default.
 
 ## Layout
 
@@ -159,10 +190,14 @@ lua/jira_tui/
   config.lua   env + ~/.config/jira-tui/config.lua
   api.lua      curl REST client (blocking, or background for view loads; secrets via curl -K)
   sprint.lua   JQL queries + pagination + field mapping
-  model.lua    tree build, time format, ADF -> markdown
+  model.lua    tree build, filters, create template, ADF -> markdown
+  md.lua       markdown -> ANSI (detail view) and markdown -> ADF (writing)
   ansi.lua     SGR colors, utf8-aware width/truncate
-  render.lua   issue tree -> ANSI lines
-  tui.lua      raw-mode runtime, input, draw loop, detail pager
+  render.lua   columns, issue rows, tab bar, detail text
+  term.lua     raw mode, key + mouse decoding
+  ui.lua       modals: input, picker, detail pager, $EDITOR handoff, help
+  tui.lua      board runtime: state, draw loop, keys, background loads
+  state.lua    persisted JQL history + last project
   init.lua     arg parsing + wiring
 bin/jira-tui   entry (luajit)
 ```
@@ -182,7 +217,7 @@ There's no build step, it's pure Lua. Everything goes through `make`:
 | `make run ARGS="REF"` | run the TUI |
 | `make install` / `make uninstall` | manage the `~/.local/bin` symlink |
 
-Tests live in `test/run.lua`, a no-framework harness that exits non-zero on any failure, so it doubles as the CI gate. It covers the JSON parser, JQL normalization, tree building, ANSI width math, time formatting, and ADF conversion. CI runs lint plus tests on Lua 5.1 / 5.3 / 5.4 and LuaJIT for every push to `main` and every pull request.
+Tests live in `test/run.lua`, a no-framework harness that exits non-zero on any failure, so it doubles as the CI gate. It covers the JSON parser, JQL normalization, tree building, ANSI width math, time formatting, ADF conversion both ways (markdown round-trips), and whole TUI flows driven headless by scripted keys against stubbed Jira calls. CI runs lint plus tests on Lua 5.1 / 5.3 / 5.4 and LuaJIT for every push to `main` and every pull request.
 
 ## State
 
@@ -190,7 +225,7 @@ Everything lives under `~/.config/jira-tui/`. Settings go in `config.lua`; the J
 
 ## Status
 
-View, navigate, JQL, instant filter, rendered descriptions and comments, status changes, assignment, editing (summary / append description), creating issues, closing issues, and logging work.
+Covers day-to-day Jira work: browsing and filtering, reading issues with comments and links, status changes, assignment, field and description edits, creating issues and sub-tasks, comments, worklogs and closing. Clearing a field (parent, points) isn't supported, and full description edits refuse content markdown can't round-trip.
 
 ## Credits
 

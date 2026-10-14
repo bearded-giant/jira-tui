@@ -163,7 +163,7 @@ end
 
 -- ---- hint / filter line ----
 -- tab keys (M/J/S/B/H) live in the header; footer shows actions only
-local HINTS = { "j/k move", "⏎ open", "/ filter", "s status", "a assign", "K detail", "b open", "r refresh", "Esc Esc quit" }
+local HINTS = { "j/k move", "⏎ open", "/ filter", "s status", "e edit", "a assign", "C comment", "r refresh", "? help", "Esc Esc quit" }
 
 function M.hint_line(view, filter, width)
   if filter and filter ~= "" then
