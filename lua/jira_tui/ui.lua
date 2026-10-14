@@ -379,35 +379,44 @@ end
 local HELP = {
   { "Views", {
     { "M", "My Issues" }, { "1-9", "Saved query tabs (config queries)" },
-    { "S", "Active Sprint" }, { "B", "Backlog" },
-    { "→ / ←", "Cycle tabs" }, { "p", "Set / change project" },
+    { "S / B", "Active Sprint / Backlog" }, { "← / →", "Cycle tabs" },
+    { "p", "Set / change project" }, { "J", "JQL history picker (e edits a past query)" },
+    { "gj", "New JQL query" }, { "r", "Refresh (skips the view cache)" },
   } },
-  { "JQL", { { "J", "Pick from history / new (e edits a past query)" }, { "gj", "New query" } } },
   { "Navigation", {
-    { "j / k", "Move (mouse wheel too; click selects)" }, { "⏎", "Open issue (expand if it has subtasks)" },
-    { "Space / Tab / o", "Expand / collapse" }, { "Ctrl-d / Ctrl-u", "Half page down / up" },
-    { "t", "Toggle all" }, { "/", "Filter rows: words, @who, s: t: p: l: (all must match)" }, { "BS", "Clear filter" },
-    { "gg / G", "Top / bottom" }, { "gi", "Go to issue by key or url (board stays put)" }, { "x", "Show/hide resolved" },
+    { "j / k", "Move (arrows, mouse wheel; click selects)" },
+    { "Ctrl-d / Ctrl-u", "Half page down / up" }, { "gg / G", "Top / bottom" },
+    { "⏎", "Open detail (expands a row with subtasks)" },
+    { "Space / Tab / o", "Expand / collapse" }, { "t", "Toggle all" },
+    { "/", "Filter: words @who s: t: p: l: (all must match)" },
+    { "BS", "Clear filter" }, { "x", "Show / hide resolved" },
+    { "gs", "Sort by column" }, { "gi", "Go to issue by key or url" },
   } },
   { "Issue", {
-    { "K / m", "Details + comments / raw markdown" },
-    { "c / o (detail)", "Expand comments / open attachment" },
-    { "] / [ (detail)", "Next / prev issue in board order" },
-    { "L (detail)", "Jump to parent / subtask / linked issue (q comes back)" },
-    { "/ n N (detail)", "Search the issue text, next / previous match" },
-    { "in detail", "s a A e d C w y Y b act on the shown issue" }, { "s", "Change status" },
-    { "e", "Edit summary, description, priority, points, labels, parent, status" },
-    { "c / gc", "Create (type picker, $EDITOR template) / child of the row" },
-    { "d", "Close (first done-ish transition)" },
+    { "K / m", "Detail / raw markdown" }, { "s", "Change status" },
+    { "e", "Edit summary, description, priority, points…" },
     { "a / A", "Assign (picker) / assign to me" }, { "C", "Comment ($EDITOR, markdown)" },
-    { "w", "Log work (1h 30m, 2d, 45m)" }, { "b / gx", "Open in browser" },
-    { "y / Y", "Copy key / url" }, { "gb", "Copy git branch name" }, { "gs", "Sort column" },
+    { "w", "Log work (1h 30m, 2d, 45m)" }, { "c / gc", "Create in project / child of the row" },
+    { "d", "Close (first done-ish transition)" }, { "b / gx", "Open in browser" },
+    { "y / Y", "Copy key / url" }, { "gb", "Copy git branch name" },
+  } },
+  { "Detail view", {
+    { "j / k, g / G", "Scroll, top / bottom" }, { "c", "Expand / collapse comments" },
+    { "o", "Open an attachment" }, { "] / [", "Next / prev issue in board order" },
+    { "L", "Parent / subtask / linked issue" }, { "/ n N", "Search, next / prev match" },
+    { "s a A e d C w", "Same as the board, on the shown issue" }, { "y Y b", "Copy key / url, open in browser" },
+    { "q / Esc", "Back (undoes L jumps first)" },
+  } },
+  { "Pickers and prompts", {
+    { "/", "Filter a picker (assign: Enter searches users)" },
+    { "⏎ / Ctrl-s", "Submit (Ctrl-s in multi-line prompts)" },
+    { "Esc", "Cancel (in a picker filter: clear it)" },
   } },
   { "General", {
-    { "r", "Refresh" }, { "H / ?", "Help (q / Esc closes it)" },
-    { "/ (picker)", "Filter the list; in the assign picker Enter searches all users" },
+    { "? / H", "This help (j/k scroll, q / Esc closes)" },
     { "q", "Back (closes popups, never the app)" },
-    { "Esc", "Cancel load, clear filter, clear message; Esc Esc quits" }, { "Ctrl-c", "Quit now" },
+    { "Esc", "Cancel load / clear filter / clear message" },
+    { "Esc Esc", "Quit" }, { "Ctrl-c", "Quit now" },
   } },
 }
 
@@ -419,7 +428,7 @@ function M.help_lines(width)
     add("  " .. ansi.fgtext(sec[1], C.yellow, ansi.BOLD))
     add("  " .. ansi.fgtext(string.rep("─", math.min(width - 4, 40)), C.overlay))
     for _, item in ipairs(sec[2]) do
-      add("    " .. ansi.fgtext(ansi.pad(item[1], 14), C.sky) .. ansi.fgtext(item[2], C.text))
+      add("    " .. ansi.fgtext(ansi.pad(item[1], 16), C.sky) .. ansi.fgtext(item[2], C.text))
     end
     add("")
   end

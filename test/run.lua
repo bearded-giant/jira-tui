@@ -1799,6 +1799,30 @@ do
   ok(out:find("no match: zzz", 1, true), "detail /: no match note")
 end
 
+-- ---- help overlay scrolls ----
+do
+  local ui = require("jira_tui.ui")
+  local r = run_tui(keyseq("?"))
+  ok(r.ok, "help flow ok (" .. tostring(r.err) .. ")")
+  ok(r.out:find("This help", 1, true) == nil, "help: bottom rows past a 30-row screen aren't drawn")
+  ok(r.out:find("j/k scroll   q / Esc / ? close   lines 1-22 of " .. #ui.help_lines(116), 1, true), "help: footer position")
+  r = run_tui(keyseq("?", "G"))
+  ok(r.out:find("Quit now", 1, true), "help: G scrolls to the last row")
+  r = run_tui(keyseq("?", "G", "g", "j"))
+  ok(r.out:find("lines 2-23", 1, true), "help: g back to top, j scrolls one")
+  r = run_tui(keyseq("?", "G", "q", "?"))
+  ok(r.out:find("lines 1-22", 1, true), "help: reopening starts at the top")
+  r = run_tui(keyseq("?", "q", "r"))
+  eq(#r.loads, 2, "help: q closes, board keys work again")
+  local keys = {}
+  for _, l in ipairs(ui.help_lines(116)) do keys[#keys + 1] = ansi.strip(l) end
+  local txt = table.concat(keys, "\n")
+  for _, k in ipairs({ "1-9", "gc", "gi", "] / [", "/ n N", "Esc Esc", "Ctrl-c", "s a A e d C w", "y Y b", "L " }) do
+    ok(txt:find(k, 1, true), "help lists " .. k)
+  end
+  for _, l in ipairs(ui.help_lines(76)) do ok(ansi.width(l) <= 76, "help line fits 80 cols") end
+end
+
 -- ---- row patch after mutations ----
 do
   local raw = { { key = "A-1", summary = "a" }, { key = "A-2", summary = "b" } }

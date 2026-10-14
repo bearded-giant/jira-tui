@@ -97,7 +97,7 @@ On the board:
 |-----|--------|
 | `j` / `k` (or arrows, mouse wheel) | move cursor; clicking a row selects it |
 | `gg` / `G` | top / bottom |
-| `ctrl-d` / `ctrl-u` | half page down / up |
+| `ctrl-d` / `ctrl-u` (or `PgDn` / `PgUp`) | half page down / up |
 | `enter` | open issue detail (expands the node instead if it has subtasks) |
 | `space` / `tab` / `o` | expand / collapse node |
 | `t` | toggle all |
@@ -109,7 +109,7 @@ On the board:
 | `J` | JQL picker (history, or new query; `e` edits the selected query) |
 | `gj` | new JQL query |
 | `gi` | go to an issue by key or pasted browse url; opens its detail without touching the board |
-| `/` | filter loaded rows (instant, no refetch); `BS` clears it |
+| `/` | filter loaded rows (instant, no refetch); `BS` or `Esc` clears it |
 | `x` | show / hide resolved |
 | `gs` | sort by column |
 | `K` / `m` | issue detail with comments / raw markdown |
@@ -119,13 +119,13 @@ On the board:
 | `C` | comment in your editor, posted as markdown |
 | `w` | log work (`1h 30m`, `2d`, `45m`) |
 | `c` | create an issue in the current project: pick a type, then fill the template in your editor (assigned to you) |
-| `gc` | create a child of the selected row: sub-task under a story or task, standard type under an epic |
+| `gc` | create a child of the selected row: sub-task under a story or task, standard type under an epic, sibling sub-task when the row is a sub-task |
 | `d` | close via the first done-ish transition |
 | `b` / `gx` | open in browser |
 | `y` / `Y` | copy key / url |
 | `gb` | copy a git branch name (`pe-1472-add-rate-limit`) |
 | `r` | refresh, skipping the view cache (keeps cursor and filter) |
-| `?` / `H` | help |
+| `?` / `H` | help (`j` / `k` scroll it, `q` / `Esc` / `?` close it) |
 | `q` | back: closes detail / help / pickers, never the app |
 | `Esc` | cancel a running load, else clear the filter, else clear the footer message, else arm quit; a second `Esc` quits |
 | `ctrl-c` | quit immediately |
@@ -141,20 +141,21 @@ In the detail view:
 | `L` | jump to the parent, a subtask or a linked issue |
 | `/` `n` `N` | search the issue text; next / previous match (wraps) |
 | `s` `a` `A` `e` `d` `C` `w` `y` `Y` `b` | same as on the board, acting on the issue you're reading |
-| `q` | back: undoes `L` jumps first, then returns to the board |
+| `q` / `Esc` | back: undoes `L` jumps first, then returns to the board |
 
 In pickers and prompts:
 
 | Key | Action |
 |-----|--------|
-| `j` / `k`, `enter` | move, pick |
-| `/` | filter the list as you type; `enter` keeps the filter, `Esc` clears it. In the assign picker `enter` searches every assignable user on the server |
-| `Esc` / `q` | cancel |
+| `j` / `k`, `enter` | move and pick in a picker |
+| `/` | filter a picker as you type; `enter` keeps the filter, `Esc` clears it. In the assign picker `enter` searches every assignable user on the server |
+| `enter` | submit a one-line prompt |
 | `ctrl-s` | submit a multi-line prompt (JQL editor, append description) |
+| `Esc` | cancel (`q` also cancels a picker; in a prompt it's just a letter) |
 
 ### Filtering
 
-`/` opens a prompt; submit it empty to clear the filter. Every word has to match. Plain words look at the summary and key; `@ann` matches the assignee, `s:review` the status, `t:bug` the type, `p:high` the priority and `l:perf` any label, all as case-insensitive substrings. So `@ann s:prog cache` is Ann's in-progress issues that mention cache. The filter runs over rows already fetched, so it's instant; on a view cut off by the fetch limit (the `+` in the title count) it only searches what was fetched.
+`/` opens a prompt; submit it empty (or press `BS` or `Esc` on the board) to clear the filter. Every word has to match. Plain words look at the summary and key; `@ann` matches the assignee, `s:review` the status, `t:bug` the type, `p:high` the priority and `l:perf` any label, all as case-insensitive substrings. So `@ann s:prog cache` is Ann's in-progress issues that mention cache. The filter runs over rows already fetched, so it's instant; on a view cut off by the fetch limit (the `+` in the title count) it only searches what was fetched.
 
 ### Reading an issue
 

@@ -167,7 +167,7 @@ local HINTS = { "j/k move", "⏎ open", "/ filter", "s status", "e edit", "a ass
 
 function M.hint_line(view, filter, width)
   if filter and filter ~= "" then
-    return ansi.fgtext("  filter: " .. filter .. "   (BS clears)", C.yellow)
+    return ansi.fgtext("  filter: " .. filter .. "   (BS or Esc clears)", C.yellow)
   end
   local items = {}
   for i, h in ipairs(HINTS) do items[i] = h end

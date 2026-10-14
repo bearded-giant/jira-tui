@@ -204,7 +204,11 @@ function M.run(opts)
 
     if st.help then
       local hl = ui.help_lines(iw)
-      for r = 4, bh - 3 do frame[r] = interior(hl[r - 3] or "") end
+      local vis = bh - 6
+      st.help_scroll = math.max(0, math.min(st.help_scroll or 0, #hl - vis))
+      for r = 4, bh - 3 do frame[r] = interior(hl[st.help_scroll + r - 3] or "") end
+      st.help_pos = #hl > vis and string.format("lines %d-%d of %d", st.help_scroll + 1,
+        math.min(#hl, st.help_scroll + vis), #hl) or nil
     else
       frame[4] = interior(render.column_header(iw, st.sort_col, st.sort_dir))
       local body_top, body_bot = 5, bh - 3
@@ -224,6 +228,7 @@ function M.run(opts)
 
     frame[bh - 2] = interior(st.message
       and ansi.bgtext("  " .. ansi.truncate(st.message, bw - 6) .. " ", C.base, st.message_ok and C.green or C.red, ansi.BOLD)
+      or st.help and ansi.fgtext("  j/k scroll   q / Esc / ? close" .. (st.help_pos and ("   " .. st.help_pos) or ""), C.overlay)
       or render.hint_line(st.view, st.filter, iw))
 
     local vtxt = " v" .. version .. " "
@@ -716,6 +721,12 @@ function M.run(opts)
         swallowed = true
         if k == "ctrl-c" then break
         elseif k == "q" or k == "esc" or k == "H" or k == "?" then st.help = false
+        elseif k == "j" or k == "down" or k == "wheeldown" then st.help_scroll = (st.help_scroll or 0) + 1
+        elseif k == "k" or k == "up" or k == "wheelup" then st.help_scroll = math.max(0, (st.help_scroll or 0) - 1)
+        elseif k == "ctrl-d" or k == "pgdn" then st.help_scroll = (st.help_scroll or 0) + math.floor(st.rows / 2)
+        elseif k == "ctrl-u" or k == "pgup" then st.help_scroll = math.max(0, (st.help_scroll or 0) - math.floor(st.rows / 2))
+        elseif k == "g" then st.help_scroll = 0
+        elseif k == "G" then st.help_scroll = math.huge
         elseif ({ M = 1, S = 1, B = 1, J = 1, left = 1, right = 1 })[k] or st.query_keys[k] then
           st.help = false; swallowed = false
         end
@@ -761,7 +772,7 @@ function M.run(opts)
         local p = ui.input("Project key", { value = st.project or "", width = 40 })
         if p and p ~= "" then st.project = p:upper(); load_view("Active Sprint", nil) end
       elseif k == "J" then pick_jql()
-      elseif k == "H" or k == "?" then st.help = true; st.message = nil
+      elseif k == "H" or k == "?" then st.help, st.help_scroll, st.message = true, 0, nil
       elseif k == "/" then
         local f = ui.input("Filter: words  @who  s:status  t:type  p:priority  l:label", { value = st.filter or "", width = 50 })
         if f ~= nil then st.filter = f ~= "" and f or nil; rebuild(n and n.key) end
@@ -791,7 +802,7 @@ function M.run(opts)
         if nv == "Active Sprint" or nv == "Backlog" then
           if ensure_project() then load_view(nv, nil) end
         elseif nv == "JQL" then pick_jql()
-        elseif nv == "Help" then st.help = true; st.message = nil
+        elseif nv == "Help" then st.help, st.help_scroll, st.message = true, 0, nil
         else load_view(nv, nil) end
       elseif k == "g" then
         local nk; repeat nk = term.read_key() until nk
