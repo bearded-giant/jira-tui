@@ -175,22 +175,24 @@ Comments, full description edits and new issues all open your editor: `$VISUAL`,
 Creating opens a form where every field has a label, so nothing is guesswork:
 
 ```
-╭─ New issue ─────────────────────────────────────────────────────╮
-│                                                                   │
-│    Project *      PE                                              │
-│    Type *         Task                                            │
-│ ▌  Summary *      Rate limit the export endpoint                  │
-│    Description    Exports hammer the DB when a big store runs…    │
-│                   - cap at 1 per minute per store                 │
-│    Priority       project default                                 │
-│    Labels         comma or space separated                        │
-│    Assignee       me                                              │
-│    Parent         epic or parent key                              │
-│                                                                   │
-╰─  one-line title   Tab / ↑↓ field   Ctrl-s create   Esc cancel ─╯
+╭─ New issue ────────────────────────────────────────────────────────────────────────────╮
+│                                                                                        │
+│   Project *      PE                                                                    │
+│   Type *         Task                                                                  │
+│ ▌ Summary *      Rate limit the export endpoint                                        │
+│   Description    Exports hammer the DB when a big store runs them back to back.        │
+│                  - cap at 1 per minute per store                                       │
+│                  - runbook: https://example.com/docs/export                            │
+│   Priority       project default                                                       │
+│   Labels         api, perf                                                             │
+│   Assignee       me                                                                    │
+│   Parent         epic or parent key                                                    │
+│                                                                                        │
+│                                                                                        │
+╰── one-line title   Tab / ↑↓ field   Ctrl-s create   Esc cancel ────────────────────────╯
 ```
 
-It opens on Summary, and you type straight into text fields. `Tab` or the arrows move between fields. `Enter` on Type or Priority opens a picker of what Jira allows for that project, `Enter` on Assignee flips between you and unassigned, and `Enter` on Description opens your editor for the markdown body (paste links to docs and repos as-is; bare URLs become links). `Ctrl-s` creates it. Starred fields are required and the form names the one you missed. If Jira rejects the create, the form comes back with Jira's error and everything you typed. `Esc` on a form you've typed into asks once before throwing it away. On success the cursor lands on the new row and `y` copies its key.
+It opens on Summary, and you type straight into text fields. `Tab` or the arrows move between fields. `Enter` on Type or Priority opens a picker of what Jira allows for that project, `Enter` on Assignee flips between you and unassigned, and `Enter` on Description opens your editor for the markdown body (paste links to docs and repos as-is; bare URLs become links). `Ctrl-s` creates it. Starred fields are required and the form names the one you missed. If Jira rejects the create, the form comes back with Jira's error, everything you typed, and the cursor on the field Jira named. `Esc` on a form you've typed into asks once before throwing it away. On success the cursor lands on the new row and `y` copies its key.
 
 Editing the full description opens it as markdown. Descriptions holding things markdown can't carry back (tables, images, mentions, panels, colored text, nested lists and so on) are refused rather than silently flattened; use "Append description" on those. Points go to the project's `story_point_field`, so set that under `projects` if your Jira keeps story points in a different custom field than the default.
 
