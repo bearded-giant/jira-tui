@@ -615,6 +615,8 @@ function M.run(opts)
     if not first then st.message = project .. ": no matching issue types"; return end
     local v = { project = project, type = first.name, summary = "", description = "", priority = "", labels = "",
       assignee = "me", parent = parent_key or "" }
+    local pristine = {}
+    for k, x in pairs(v) do pristine[k] = x end
 
     local function pick(f, vals)
       if f.name == "type" then
@@ -639,7 +641,7 @@ function M.run(opts)
     while true do
       draw()
       if not ui.form(title, CREATE_FIELDS, v, { pick = pick, error = err, focus = focus, submit = "create",
-        backdrop = draw }) then return end
+        backdrop = draw, pristine = pristine }) then return end
       v.project = v.project:upper()
       local ts, terr2
       if sprint.valid_project(v.project) then ts, terr2 = api.get_create_types(v.project)

@@ -161,13 +161,17 @@ local FORM_KIND_HINT = { text = "type to edit", pick = "âŽ choose", toggle = "â
 -- labelled form modal. fields: { name, label, kind = text|pick|toggle|editor, required, hint, options }.
 -- values: name -> string, edited in place. hint is the placeholder for an empty field and its footer help.
 -- opts.pick(field, values) -> value | nil, err (pick fields); opts.error shown under the fields, opts.focus its field;
--- opts.submit names the ctrl-s action; opts.backdrop repaints what's behind after a picker or $EDITOR.
+-- opts.submit names the ctrl-s action; opts.backdrop repaints what's behind after a picker or $EDITOR;
+-- opts.pristine is what counts as untouched for Esc (default: values as passed in).
 -- returns values on ctrl-s once required fields are filled, nil on cancel.
 function M.form(title, fields, values, opts)
   M._dirty = true
   opts = opts or {}
-  local start = {}
-  for k, v in pairs(values) do start[k] = v end
+  local start = opts.pristine
+  if not start then
+    start = {}
+    for k, v in pairs(values) do start[k] = v end
+  end
   local focus = 1
   for i, f in ipairs(fields) do
     if f.required and (values[f.name] or "") == "" then focus = i; break end

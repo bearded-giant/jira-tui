@@ -1331,6 +1331,13 @@ do
   r, cs = created(keyseq("c", "x", "esc", "esc", "r"))
   ok(r.out:find("Esc again to discard", 1, true), "c: esc with input asks before discarding")
   eq(#cs, 0, "c: discarded"); eq(#r.loads, 2, "c: second esc closes the form, not the app")
+  local tries = 0
+  r, cs = created(keyseq("c", "Fix", "ctrl-s", "esc", "ctrl-s"), { api = { create_issue = function()
+    tries = tries + 1
+    if tries == 1 then return nil, "HTTP 400: boom" end
+    return { key = "PE-77" }
+  end } })
+  eq(#calls(r.api, "create_issue"), 2, "c: esc on a form reopened after an error asks first instead of discarding")
   -- other cached views refetch after a create, so the new issue isn't stale-cached away
   r, cs = created(keyseq("P", "M", "c", "x", "ctrl-s", "P"), { cache_ttl = 300 })
   local views = {}
