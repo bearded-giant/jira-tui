@@ -1467,6 +1467,25 @@ do
   eq(res and res.a, "k", "form: blocked submit focuses the missing field")
   okf, res = run_form(keyseq("esc"), F, { a = "", b = "", who = "me" })
   ok(okf and res == nil, "form: esc on untouched form cancels")
+  -- a long description on a short terminal still leaves every field on screen
+  local function form_on(rows, keys, fields, values)
+    local i, at, row = 0, {}, nil
+    local _, restore = stub(term, { size = function() return rows, 120 end, moveto = function(r) row = r end,
+      out = function(x) if row then at[row] = (at[row] or "") .. x end end,
+      read_key = function() i = i + 1; if keys[i] then return keys[i] end; error("feed exhausted") end })
+    local okf2, res2 = pcall(ui.form, "T", fields, values, {})
+    restore()
+    local txt = {}
+    for r = 1, rows do txt[#txt + 1] = ansi.strip(at[r] or "") end
+    return okf2, res2, table.concat(txt, "\n")
+  end
+  local LONG = { { name = "a", label = "Alpha", kind = "text" }, { name = "d", label = "Desc", kind = "editor" },
+    { name = "y", label = "Last", kind = "text" } }
+  local _, _, screen = form_on(12, keyseq("ctrl-s"), LONG, { a = "", d = "one\ntwo\nthree\nfour\nfive\nsix", y = "" })
+  ok(screen:find("Last", 1, true), "form: short terminal keeps the last field visible")
+  ok(screen:find("more lines", 1, true), "form: trimmed preview says how much is hidden")
+  _, _, screen = form_on(40, keyseq("ctrl-s"), LONG, { a = "", d = "one\ntwo\nthree\nfour\nfive\nsix", y = "" })
+  ok(screen:find("four", 1, true) and screen:find("2 more lines", 1, true), "form: tall terminal previews 4 lines")
   okf, res = run_form(keyseq("x", "esc", "y", "ctrl-s"), F, { a = "", b = "", who = "me" })
   eq(res and res.a, "xy", "form: a key after one esc disarms the discard")
 end

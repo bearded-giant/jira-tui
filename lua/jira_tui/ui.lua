@@ -193,6 +193,8 @@ function M.form(title, fields, values, opts)
     local w = math.min(90, cols - 4)
     local vw = w - lw - 6
     local lines = {}
+    -- preview rows come out of what the fields leave, so a short terminal never hides a field
+    local budget = math.max(0, rows - 7 - #fields)
     for i, f in ipairs(fields) do
       local v = values[f.name] or ""
       local on = i == focus
@@ -211,11 +213,13 @@ function M.form(title, fields, values, opts)
       if f.kind == "editor" and v ~= "" then
         local more, n = {}, 0
         for l in (v .. "\n"):gmatch("(.-)\n") do n = n + 1; if n > 1 and l:match("%S") then more[#more + 1] = l end end
-        for j = 1, math.min(#more, 4) do
+        local cap = math.min(4, budget)
+        local shown_n = #more > cap and math.max(0, cap - 1) or #more
+        for j = 1, shown_n do
           lines[#lines + 1] = string.rep(" ", lw + 3) .. ansi.fgtext(ansi.truncate(more[j], vw), C.subtext)
         end
-        if #more > 4 then
-          lines[#lines + 1] = string.rep(" ", lw + 3) .. ansi.fgtext("… " .. (#more - 4) .. " more lines", C.overlay)
+        if #more > shown_n and cap > 0 then
+          lines[#lines + 1] = string.rep(" ", lw + 3) .. ansi.fgtext("… " .. (#more - shown_n) .. " more lines", C.overlay)
         end
       end
     end
