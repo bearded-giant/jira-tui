@@ -341,23 +341,6 @@ do
   eq(model.pick_done_transition({ trs[1] }), nil, "nil when nothing done-ish")
   eq(model.pick_done_transition(nil), nil, "nil transitions tolerated")
 
-  local pc = model.parse_create("Fix the thing\nlabels: a, b c\npoints: 3\npriority: High\n---\n## Body\n\n- x\n")
-  eq(pc.summary, "Fix the thing", "parse_create summary")
-  eq(table.concat(pc.labels, "|"), "a|b|c", "parse_create labels split on comma/space")
-  eq(pc.points, 3, "parse_create points")
-  eq(pc.priority, "High", "parse_create priority")
-  eq(pc.description, "## Body\n\n- x", "parse_create body after ---")
-  pc = model.parse_create("Title only" .. model.CREATE_TEMPLATE:sub(1))
-  ok(pc and pc.labels == nil and pc.points == nil and pc.priority == nil and pc.description == nil,
-    "parse_create: untouched template fields -> nil")
-  pc = model.parse_create("t\nrest without marker")
-  eq(pc.description, "rest without marker", "parse_create: no --- -> rest is body")
-  local bad, berr = model.parse_create("t\nowner: me\n---\n")
-  ok(bad == nil and berr:find("unknown field line: owner: me", 1, true), "parse_create: unknown field rejected")
-  bad, berr = model.parse_create("t\npoints: lots\n---\n")
-  ok(bad == nil and berr:find("points"), "parse_create: non-numeric points rejected")
-  bad, berr = model.parse_create(model.CREATE_TEMPLATE)
-  ok(bad == nil and berr:find("summary"), "parse_create: empty summary rejected")
   eq(table.concat(model.split_labels(" a,,b  c "), "|"), "a|b|c", "split_labels")
 end
 
@@ -464,6 +447,7 @@ do
   eq(keys("a"), "a", "printable passthrough")
   eq(keys("\27"), "esc", "bare esc (timeout -> nil after ESC)")
   eq(keys("\27[A"), "up", "csi arrow")
+  eq(keys("\27[Z"), "btab", "shift-tab")
   eq(keys("\27OA"), "up", "ss3 arrow (app mode)")
   eq(keys("\27[1;5A"), "up", "ctrl-arrow modifiers ignored")
   eq(keys("\27[<64;10;5M"), "wheelup", "sgr wheel up")
@@ -662,7 +646,7 @@ end
 
 -- key names pass through as tokens; any other string is typed one char at a time
 local KEY_NAMES = {}
-for k in ("enter esc tab bs del ctrl-s ctrl-c ctrl-d ctrl-u up down left right home end pgup pgdn wheelup wheeldown")
+for k in ("enter esc tab btab bs del ctrl-s ctrl-c ctrl-d ctrl-u up down left right home end pgup pgdn wheelup wheeldown")
   :gmatch("%S+") do KEY_NAMES[k] = true end
 local function keyseq(...)
   local out = {}
@@ -1150,7 +1134,7 @@ do
   eq(#tr, 1, "detail s: one transition")
   eq(tr[1] and tr[1][2], "PE-1", "detail s: acts on shown issue")
   eq(#calls(r.api, "get_issue"), 2, "detail s: detail refetched after mutation")
-  ok(r.out:find(" PE-1 → In Progress   j/k scroll", 1, true), "detail s: handler message shown as popup note")
+  ok(r.out:find(" PE-1 → In Progress   y copy key", 1, true), "detail s: handler message shown as popup note")
   ok(not r.out:find("moving PE-1", 1, true), "detail s: board footer not painted while popup is up")
 
   -- ] / [ walk board order (skipping spacers), q leaves cursor on the last viewed issue
@@ -1265,42 +1249,87 @@ do
 
   local TYPES = { { id = "1", name = "Epic", subtask = false }, { id = "2", name = "Story", subtask = false },
     { id = "3", name = "Sub-task", subtask = true }, { id = "4", name = "Sub-defect", subtask = true } }
-  local function created(keys, issues, editor)
-    local shown
-    local r = run_tui(keys, { issues = issues,
-      ui = { edit_external = function() return editor or "Child\nlabels: t1\n---\nbody" end },
-      api = { get_create_types = function() return TYPES end, myself = function() return { accountId = "me1" } end,
-        create_issue = function() return { key = "PE-77" } end },
+  local function created(keys, extra)
+    extra = extra or {}
+    local a = { get_create_types = function(p) return p == "OPS" and { { id = "9", name = "Task", subtask = false } } or TYPES end,
+      myself = function() return { accountId = "me1" } end,
+      get_priorities = function() return { { id = "1", name = "Highest" }, { id = "3", name = "Medium" } } end,
+      create_issue = function() return { key = "PE-77" } end }
+    for k, fn in pairs(extra.api or {}) do a[k] = fn end
+    local r = run_tui(keys, { issues = extra.issues, ui = extra.ui, api = a, cache_ttl = extra.cache_ttl,
       sprint = { get_issue_row = function(key) return { key = key, summary = "Child", status = "To Do" } end } })
-    return r, calls(r.api, "create_issue")[1]
+    return r, calls(r.api, "create_issue")
   end
-  -- gc on a story -> sub-task types, parent = that story
-  local r, c = created(keyseq("g", "c", "j", "enter"))
+  -- form fields: 1 project, 2 type, 3 summary, 4 description, 5 priority, 6 labels, 7 assignee, 8 parent.
+  -- it opens on summary, the first empty required field
+  local r, cs = created(keyseq("c", "Fix it", "ctrl-s"))
+  ok(r.ok, "c flow ok (" .. tostring(r.err) .. ")")
+  local c = cs[1]
+  eq(c and c[2], "PE", "c: project prefilled")
+  eq(c and c[3], "Fix it", "c: summary typed straight into the focused field")
+  eq(c and c[4].id, "2", "c: default type prefers Task, then Story")
+  eq(c and c[5].parent, nil, "c: no parent")
+  eq(c and c[5].assignee_account_id, "me1", "c: assigned to me by default")
+  ok(r.out:find("Summary *", 1, true) and r.out:find("Description", 1, true) and r.out:find("Ctrl-s create", 1, true),
+    "c: form labels every field and says how to submit")
+  ok(r.out:find("created PE-77  ·  y copies the key", 1, true), "c: success names the key and how to copy it")
+  -- gc on a story: type picker only offers sub-task types, parent = that story
+  r, cs = created(keyseq("g", "c", "up", "enter", "j", "enter", "down", "Child", "down", "down", "down", "t1, t2", "ctrl-s"))
   ok(r.ok, "gc flow ok (" .. tostring(r.err) .. ")")
+  c = cs[1]
   eq(c and c[4].id, "4", "gc on story: picker offers sub-task types only (2nd = Sub-defect)")
   eq(c and c[5].parent, "PE-1", "gc on story: parent = row")
-  eq(c and c[5].labels[1], "t1", "gc: template fields passed")
-  ok(r.out:find("created PE-77", 1, true), "gc: new row appended")
+  eq(c and table.concat(c[5].labels, "|"), "t1|t2", "gc: labels field split")
+  ok(r.out:find("New child of PE-1", 1, true), "gc: form title names the parent")
   -- gc on a sub-task row -> sibling under the same parent
-  r, c = created(keyseq("j", "j", "g", "c", "enter"))
-  eq(c and c[5].parent, "PE-2", "gc on sub-task: parent = its parent")
-  eq(c and c[4].id, "3", "gc on sub-task: sub-task types")
+  r, cs = created(keyseq("j", "j", "g", "c", "Kid", "ctrl-s"))
+  eq(cs[1] and cs[1][5].parent, "PE-2", "gc on sub-task: parent = its parent")
+  eq(cs[1] and cs[1][4].id, "3", "gc on sub-task: first sub-task type")
   -- gc on an epic -> standard types
-  r, c = created(keyseq("g", "c", "j", "enter"), { { key = "PE-9", summary = "epic", type = "Epic", status = "To Do" } })
-  eq(c and c[4].id, "2", "gc on epic: standard types (2nd = Story)")
-  eq(c and c[5].parent, "PE-9", "gc on epic: parent = epic")
-  -- c in project -> standard types, no parent
-  r, c = created(keyseq("c", "enter"))
-  eq(c and c[4].id, "1", "c: standard types")
-  eq(c and c[5].parent, nil, "c: no parent")
-  -- parse error keeps the draft for the next c
-  local drafts = {}
-  r = run_tui(keyseq("c", "enter", "c", "enter"), {
-    ui = { edit_external = function(initial) drafts[#drafts + 1] = initial; return "t\nbogus: 1\n---\n" end },
-    api = { get_create_types = function() return TYPES end, create_issue = function() return { key = "X" } end } })
-  ok(r.out:find("unknown field line: bogus: 1", 1, true), "c: parse error shown")
-  eq(#calls(r.api, "create_issue"), 0, "c: parse error sends nothing")
-  eq(drafts[2], "t\nbogus: 1\n---\n", "c: failed draft reopens on next c")
+  r, cs = created(keyseq("g", "c", "x", "ctrl-s"), { issues = { { key = "PE-9", summary = "epic", type = "Epic", status = "To Do" } } })
+  eq(cs[1] and cs[1][4].id, "2", "gc on epic: standard type")
+  eq(cs[1] and cs[1][5].parent, "PE-9", "gc on epic: parent = epic")
+  -- empty summary is caught in the form, nothing sent until it's filled
+  r, cs = created(keyseq("c", "ctrl-s", "x", "ctrl-s"))
+  ok(r.out:find("Summary is required", 1, true), "c: required field named")
+  eq(#cs, 1, "c: one create once summary is filled")
+  -- jira rejecting the create reopens the form with the error and everything typed
+  local n = 0
+  r, cs = created(keyseq("c", "Fix", "ctrl-s", "ctrl-s"), { api = { create_issue = function()
+    n = n + 1
+    if n == 1 then return nil, "HTTP 400: priority: invalid" end
+    return { key = "PE-77" }
+  end } })
+  eq(#cs, 2, "c: failed create reopens the form")
+  eq(cs[2] and cs[2][3], "Fix", "c: reopened form kept the summary")
+  ok(r.out:find("create failed: HTTP 400: priority: invalid", 1, true), "c: jira error shown in the form")
+  local reopened = ansi.strip(r.out:sub(1, (r.out:find("create failed", 1, true))))
+  reopened = reopened:sub(reopened:match(".*()New issue"))
+  ok(reopened:find("▌ Priority", 1, true), "c: reopened form focuses the field jira rejected")
+  -- switching project to one without the chosen type flips to its default and says so
+  r, cs = created(keyseq("c", "up", "up", "bs", "bs", "ops", "down", "down", "x", "ctrl-s", "ctrl-s"))
+  ok(r.out:find("OPS has no Story type; switched to Task", 1, true), "c: type missing in new project explained")
+  eq(cs[1] and cs[1][2], "OPS", "c: project field uppercased")
+  eq(cs[1] and cs[1][4].id, "9", "c: created with the new project's type")
+  -- priority picker, assignee toggle, description via $EDITOR
+  r, cs = created(keyseq("c", "x", "down", "enter", "down", "enter", "j", "j", "enter", "down", "down", "enter", "ctrl-s"),
+    { ui = { edit_external = function() return "see https://example.com/repo" end } })
+  c = cs[1]
+  eq(c and c[5].description, "see https://example.com/repo", "c: description from $EDITOR")
+  eq(c and c[5].priority, "Medium", "c: priority picked from jira's list")
+  eq(c and c[5].assignee_account_id, nil, "c: assignee toggled to unassigned")
+  ok(r.out:find("see https://example.com/repo", 1, true), "c: description previewed in the form")
+  -- Esc on an untouched form closes it; with input it asks first
+  r, cs = created(keyseq("c", "esc", "r"))
+  eq(#cs, 0, "c: esc on untouched form sends nothing"); eq(#r.loads, 2, "c: board live after esc")
+  r, cs = created(keyseq("c", "x", "esc", "esc", "r"))
+  ok(r.out:find("Esc again to discard", 1, true), "c: esc with input asks before discarding")
+  eq(#cs, 0, "c: discarded"); eq(#r.loads, 2, "c: second esc closes the form, not the app")
+  -- other cached views refetch after a create, so the new issue isn't stale-cached away
+  r, cs = created(keyseq("P", "M", "c", "x", "ctrl-s", "P"), { cache_ttl = 300 })
+  local views = {}
+  for _, l in ipairs(r.loads) do views[#views + 1] = l.view end
+  eq(table.concat(views, ","), "My Issues,Project,Project", "c: cached Project view refetched after create")
 end
 
 -- ---- project view + sprint picker ----
@@ -1373,6 +1402,43 @@ do
   r = run_tui(keyseq(), { issues = { { key = "PE-1", summary = "x", status = "Done", status_category = "Done" } } })
   ok(r.out:find("(no issues · 1 resolved hidden, x shows them)", 1, true), "empty board explains hidden resolved")
 
+  -- e menu reads as label / current value
+  r = run_tui(keyseq("e", "esc"))
+  ok(r.out:find("Summary             alpha root", 1, true), "e menu: summary value beside its label")
+  ok(r.out:find("Priority            High", 1, true), "e menu: priority value")
+  ok(r.out:find("Status              To Do", 1, true), "e menu: status value")
+end
+
+-- ---- ui.form ----
+do
+  local term = require("jira_tui.term")
+  local ui = require("jira_tui.ui")
+  local function run_form(keys, fields, values)
+    local i, out = 0, {}
+    local _, restore = stub(term, { size = function() return 30, 120 end, moveto = function() end,
+      out = function(x) out[#out + 1] = x end,
+      read_key = function() i = i + 1; if keys[i] then return keys[i] end; error("feed exhausted") end })
+    local okf, res = pcall(ui.form, "T", fields, values, {})
+    restore()
+    return okf, res, table.concat(out)
+  end
+  local F = { { name = "a", label = "Alpha", kind = "text", required = true },
+    { name = "b", label = "Beta", kind = "text", hint = "optional thing" },
+    { name = "who", label = "Who", kind = "toggle", options = { "me", "unassigned" } } }
+  local okf, res, out = run_form(keyseq(" x ", "ctrl-s"), F, { a = "", b = "", who = "me" })
+  ok(okf, "form ok (" .. tostring(res) .. ")")
+  eq(res and res.a, "x", "form: text trimmed on submit")
+  ok(out:find("optional thing", 1, true), "form: empty field shows its hint")
+  okf, res = run_form(keyseq("tab", "y", "btab", "z", "ctrl-s"), F, { a = "", b = "", who = "me" })
+  eq(res and res.b, "y", "form: tab moves to the next field"); eq(res and res.a, "z", "form: shift-tab moves back")
+  okf, res = run_form(keyseq("up", " ", "ctrl-s"), F, { a = "q", b = "", who = "me" })
+  eq(res and res.who, "unassigned", "form: up wraps to the last field, space toggles")
+  okf, res = run_form(keyseq("ctrl-s", "k", "ctrl-s"), F, { a = "", b = "", who = "me" })
+  eq(res and res.a, "k", "form: blocked submit focuses the missing field")
+  okf, res = run_form(keyseq("esc"), F, { a = "", b = "", who = "me" })
+  ok(okf and res == nil, "form: esc on untouched form cancels")
+  okf, res = run_form(keyseq("x", "esc", "y", "ctrl-s"), F, { a = "", b = "", who = "me" })
+  eq(res and res.a, "xy", "form: a key after one esc disarms the discard")
 end
 
 -- ---- configurable columns + status width ----
@@ -1908,7 +1974,8 @@ do
   local keys = {}
   for _, l in ipairs(ui.help_lines(116)) do keys[#keys + 1] = ansi.strip(l) end
   local txt = table.concat(keys, "\n")
-  for _, k in ipairs({ "1-9", "gc", "gi", "] / [", "/ n N", "Esc Esc", "Ctrl-c", "s a A e d C w", "y Y b", "L ", "P ", "@me" }) do
+  for _, k in ipairs({ "1-9", "gc", "gi", "] / [", "/ n N", "Esc Esc", "Ctrl-c", "s a A e d C w", "y Y b", "L ", "P ", "@me",
+    "Shift-Tab" }) do
     ok(txt:find(k, 1, true), "help lists " .. k)
   end
   for _, l in ipairs(ui.help_lines(76)) do ok(ansi.width(l) <= 76, "help line fits 80 cols") end
@@ -1959,8 +2026,7 @@ do
   ok(r.out:find("alpha root", 1, true), "assign: rows kept on refresh failure")
 
   -- create appends the new row
-  r = run_tui(keyseq("c", "enter"), {
-    ui = { edit_external = function() return "new thing" end },
+  r = run_tui(keyseq("c", "new thing", "ctrl-s"), {
     api = { myself = function() return { accountId = "me1" } end,
       get_create_types = function() return { { id = "1", name = "Story", subtask = false } } end,
       create_issue = function() return { key = "PE-99" } end },

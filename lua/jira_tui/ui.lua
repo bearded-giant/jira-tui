@@ -50,6 +50,22 @@ local function cp_count(s, a, b) return select(2, s:sub(a + 1, b):gsub("[^\128-\
 local function line_start(s, p) while p > 0 and s:sub(p, p) ~= "\n" do p = p - 1 end; return p end
 local function line_end(s, p) local i = s:find("\n", p + 1, true); return i and i - 1 or #s end
 
+-- one-line editing keys shared by input and form. returns buf, p, or nil when k isn't one of them
+local function line_key(buf, p, k)
+  if k == "bs" then
+    if p == 0 then return buf, p end
+    local a = cp_prev(buf, p)
+    return buf:sub(1, a) .. buf:sub(p + 1), a
+  elseif k == "del" then
+    if p < #buf then buf = buf:sub(1, p) .. buf:sub(cp_next(buf, p) + 1) end
+    return buf, p
+  elseif k == "left" then return buf, cp_prev(buf, p)
+  elseif k == "right" then return buf, cp_next(buf, p)
+  elseif k == "home" then return buf, 0
+  elseif k == "end" then return buf, #buf
+  elseif type(k) == "string" and #k == 1 and k:byte() >= 32 then return buf:sub(1, p) .. k .. buf:sub(p + 1), p + 1 end
+end
+
 -- bytes (a, b] of s, with the codepoint at cursor p reversed when a <= p <= b
 local function span(s, a, b, p)
   if p < a or p > b then return ansi.fgtext(s:sub(a + 1, b), C.text) end
@@ -126,19 +142,142 @@ function M.input(title, opts)
     if opts.multiline and k == "ctrl-s" then return trim(buf) end
     if not opts.multiline and k == "enter" then return trim(buf) end
     if k == "enter" and opts.multiline then insert("\n")
-    elseif k == "bs" then
-      if p > 0 then local a = cp_prev(buf, p); buf = buf:sub(1, a) .. buf:sub(p + 1); p = a end
-    elseif k == "del" then
-      if p < #buf then buf = buf:sub(1, p) .. buf:sub(cp_next(buf, p) + 1) end
-    elseif k == "left" then p = cp_prev(buf, p)
-    elseif k == "right" then p = cp_next(buf, p)
-    elseif k == "home" then p = opts.multiline and line_start(buf, p) or 0
-    elseif k == "end" then p = opts.multiline and line_end(buf, p) or #buf
+    elseif opts.multiline and k == "home" then p = line_start(buf, p)
+    elseif opts.multiline and k == "end" then p = line_end(buf, p)
     elseif opts.multiline and (k == "up" or k == "down") then
       local t = vis[crow + (k == "up" and -1 or 1)]
       if t then p = cp_advance(buf, t[1], cp_count(buf, vis[crow][1], p), t.last and t[2] or cp_prev(buf, t[2])) end
     elseif k == "tab" then insert("  ")
-    elseif type(k) == "string" and #k == 1 and k:byte() >= 32 then insert(k) end
+    else
+      local nb, np = line_key(buf, p, k)
+      if nb then buf, p = nb, np end
+    end
+  end
+end
+
+local FORM_KIND_HINT = { text = "type to edit", pick = "⏎ choose", toggle = "⏎ / Space switch",
+  editor = "⏎ open $EDITOR   BS clear" }
+
+-- labelled form modal. fields: { name, label, kind = text|pick|toggle|editor, required, hint, options }.
+-- values: name -> string, edited in place. hint is the placeholder for an empty field and its footer help.
+-- opts.pick(field, values) -> value | nil, err (pick fields); opts.error shown under the fields, opts.focus its field;
+-- opts.submit names the ctrl-s action; opts.backdrop repaints what's behind after a picker or $EDITOR.
+-- returns values on ctrl-s once required fields are filled, nil on cancel.
+function M.form(title, fields, values, opts)
+  M._dirty = true
+  opts = opts or {}
+  local start = {}
+  for k, v in pairs(values) do start[k] = v end
+  local focus = 1
+  for i, f in ipairs(fields) do
+    if f.required and (values[f.name] or "") == "" then focus = i; break end
+  end
+  for i, f in ipairs(fields) do if f.name == opts.focus then focus = i end end
+  local p = #(values[fields[focus].name] or "")
+  local err, note = opts.error, nil
+  local armed = false
+  local lw = 0
+  for _, f in ipairs(fields) do lw = math.max(lw, ansi.width(f.label) + 4) end
+
+  local function move(d)
+    focus = (focus - 1 + d) % #fields + 1
+    p = #(values[fields[focus].name] or "")
+  end
+
+  while true do
+    local rows, cols = term.size()
+    local w = math.min(90, cols - 4)
+    local vw = w - lw - 6
+    local lines = {}
+    for i, f in ipairs(fields) do
+      local v = values[f.name] or ""
+      local on = i == focus
+      local label = ansi.fgtext(ansi.pad(f.label .. (f.required and " *" or ""), lw), on and C.yellow or C.sky,
+        on and ansi.BOLD or nil)
+      local shown
+      if on and f.kind == "text" then
+        local a = cp_advance(v, 0, math.max(0, cp_count(v, 0, p) - vw + 1), #v)
+        shown = span(v, a, cp_advance(v, a, vw, #v), p)
+      elseif v == "" then
+        shown = ansi.fgtext(ansi.truncate(f.hint or "", vw), C.overlay, ansi.ITALIC)
+      else
+        shown = ansi.fgtext(ansi.truncate(v:match("^[^\n]*"), vw), C.text)
+      end
+      lines[#lines + 1] = (on and ansi.fgtext(" ▌ ", C.sky, ansi.BOLD) or "   ") .. label .. shown
+      if f.kind == "editor" and v ~= "" then
+        local more, n = {}, 0
+        for l in (v .. "\n"):gmatch("(.-)\n") do n = n + 1; if n > 1 then more[#more + 1] = l end end
+        for j = 1, math.min(#more, 4) do
+          lines[#lines + 1] = string.rep(" ", lw + 3) .. ansi.fgtext(ansi.truncate(more[j], vw), C.subtext)
+        end
+        if #more > 4 then
+          lines[#lines + 1] = string.rep(" ", lw + 3) .. ansi.fgtext("… " .. (#more - 4) .. " more lines", C.overlay)
+        end
+      end
+    end
+    local h = math.min(#lines + 5, rows - 2)
+    local top, left = center(rows, cols, w, h)
+    draw_box(top, left, w, h, title)
+    for i = 1, math.min(#lines, h - 5) do
+      term.moveto(top + 1 + i, left + 1)
+      term.out(ansi.cut(lines[i], w - 2))
+    end
+    if err or note then
+      term.moveto(top + h - 2, left + 4)
+      term.out(ansi.fgtext(ansi.truncate(((err or note):gsub("%s+", " ")), w - 8), err and C.red or C.yellow))
+    end
+    local f = fields[focus]
+    term.moveto(top + h - 1, left + 3)
+    local fh = f.kind == "text" and f.hint or FORM_KIND_HINT[f.kind]
+    term.out(ansi.fgtext(ansi.truncate(" " .. fh .. "   Tab / ↑↓ field   Ctrl-s " .. (opts.submit or "submit")
+      .. "   Esc cancel ", w - 6), C.overlay))
+
+    local k; repeat k = term.read_key() until k
+    local was_armed = armed
+    armed, note = false, nil
+    local v = values[f.name] or ""
+    if k == "ctrl-c" then return nil
+    elseif k == "esc" then
+      local changed = false
+      for _, fd in ipairs(fields) do if (values[fd.name] or "") ~= (start[fd.name] or "") then changed = true end end
+      if not changed or was_armed then return nil end
+      armed, note = true, "Esc again to discard this form"
+    elseif k == "ctrl-s" then
+      err = nil
+      for i, fd in ipairs(fields) do
+        if fd.required and (values[fd.name] or ""):match("^%s*$") then
+          err = fd.label .. " is required"; focus = i; p = #(values[fd.name] or ""); break
+        end
+      end
+      if not err then
+        for _, fd in ipairs(fields) do
+          if fd.kind == "text" then values[fd.name] = trim(values[fd.name] or "") end
+        end
+        return values
+      end
+    elseif k == "tab" or k == "down" then move(1)
+    elseif k == "btab" or k == "up" then move(-1)
+    elseif f.kind == "text" then
+      if k == "enter" then move(1)
+      else
+        local nb, np = line_key(v, p, k)
+        if nb then values[f.name], p = nb, np end
+      end
+    elseif f.kind == "toggle" and (k == "enter" or k == " ") then
+      local choices = f.options or {}
+      local idx = 0
+      for i, o in ipairs(choices) do if o == v then idx = i end end
+      values[f.name] = choices[idx % #choices + 1]
+    elseif f.kind == "editor" and (k == "bs" or k == "del") then values[f.name] = ""
+    elseif (f.kind == "pick" and (k == "enter" or k == " ")) or (f.kind == "editor" and k == "enter") then
+      local nv, perr
+      if f.kind == "editor" then nv = M.edit_external(v, ".md")
+      elseif opts.pick then nv, perr = opts.pick(f, values) end
+      if nv then values[f.name] = nv end
+      if perr then err = perr end
+      if opts.backdrop then opts.backdrop() end
+      M._dirty = true
+    end
   end
 end
 
@@ -316,11 +455,11 @@ function M.detail(title, text, opts)
     elseif scroll >= #lines - body then pos = "bot"
     else pos = math.floor((scroll + body) / #lines * 100) .. "%" end
     local hints = " " .. (note and note .. "   " or "")
-      .. (#matches > 0 and ("match " .. mi .. "/" .. #matches .. "   ") or "") .. "j/k scroll"
-      .. (opts.alt and "   c comments" or "") .. (opts.hint and "   " .. opts.hint or "")
-      .. "   / search   q back   " .. pos .. " "
+      .. (#matches > 0 and ("match " .. mi .. "/" .. #matches .. "   ") or "")
+      .. (opts.hint and opts.hint .. "   " or "") .. (opts.alt and "c comments   " or "") .. "/ search   q back"
+    local tail = "   " .. pos .. " "
     term.moveto(top + h - 1, left + 2)
-    term.out(ansi.fgtext(ansi.truncate(hints, w - 4), C.overlay))
+    term.out(ansi.fgtext(ansi.truncate(hints, w - 4 - ansi.width(tail)) .. tail, C.overlay))
     local k; repeat k = term.read_key() until k
     note = nil
     if k == "q" or k == "esc" or k == "ctrl-c" then return end
@@ -394,23 +533,25 @@ local HELP = {
     { "gs", "Sort by column" }, { "gi", "Go to issue by key or url" },
   } },
   { "Issue", {
+    { "y / Y", "Copy key / url" }, { "gb", "Copy git branch name" },
+    { "c / gc", "Create (form) in project / child of the row" },
     { "K / m", "Detail / raw markdown" }, { "s", "Change status" },
     { "e", "Edit summary, description, priority, points…" },
     { "a / A", "Assign (picker) / assign to me" }, { "C", "Comment ($EDITOR, markdown)" },
-    { "w", "Log work (1h 30m, 2d, 45m)" }, { "c / gc", "Create in project / child of the row" },
+    { "w", "Log work (1h 30m, 2d, 45m)" },
     { "d", "Close (first done-ish transition)" }, { "b / gx", "Open in browser" },
-    { "y / Y", "Copy key / url" }, { "gb", "Copy git branch name" },
   } },
   { "Detail view", {
     { "j / k, g / G", "Scroll, top / bottom" }, { "c", "Expand / collapse comments" },
     { "o", "Open an attachment" }, { "] / [", "Next / prev issue in board order" },
     { "L", "Parent / subtask / linked issue" }, { "/ n N", "Search, next / prev match" },
-    { "s a A e d C w", "Same as the board, on the shown issue" }, { "y Y b", "Copy key / url, open in browser" },
+    { "y Y b", "Copy key / url, open in browser" }, { "s a A e d C w", "Same as the board, on the shown issue" },
     { "q / Esc", "Back (undoes L jumps first)" },
   } },
-  { "Pickers and prompts", {
+  { "Pickers, prompts, forms", {
     { "/", "Filter a picker (assign: Enter searches users)" },
-    { "⏎ / Ctrl-s", "Submit (Ctrl-s in multi-line prompts)" },
+    { "⏎ / Ctrl-s", "Submit (Ctrl-s in multi-line prompts and forms)" },
+    { "Tab / ↑↓", "Next / prev form field (Shift-Tab back)" },
     { "Esc", "Cancel (in a picker filter: clear it)" },
   } },
   { "General", {

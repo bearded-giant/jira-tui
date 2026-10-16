@@ -53,9 +53,9 @@ return {
 
 `columns` picks from `key`, `summary`, `assignee`, `status`, `created`, `age` (time since created), `updated` (time since last update), `priority`, `points` and `labels`. `key` and `summary` are required. On a narrow terminal the optional ones (everything except key, summary, assignee and status) drop out right to left until the title has room, and `gs` sorts by any configured column. The status column sizes itself to the longest status in the loaded rows.
 
-Switching tabs reuses rows fetched within the last `cache_ttl` seconds, so flipping between views is instant; the footer says how long ago the rows you're looking at were fetched (`updated 3m ago`), and `r` always refetches. Leave the board idle and it reloads the current view every `refresh_interval` seconds, keeping your cursor and filter, and it quietly prefetches the detail of the row under the cursor so `enter` opens instantly. Your own edits (status, assign, edit, close) patch the affected row in every cached view that already shows it; a new issue only lands in the view you created it from.
+Switching tabs reuses rows fetched within the last `cache_ttl` seconds, so flipping between views is instant; the footer says how long ago the rows you're looking at were fetched (`updated 3m ago`), and `r` always refetches. Leave the board idle and it reloads the current view every `refresh_interval` seconds, keeping your cursor and filter, and it quietly prefetches the detail of the row under the cursor so `enter` opens instantly. Your own edits (status, assign, edit, close) patch the affected row in every cached view that already shows it. A new issue lands in the view you created it from, and every other view refetches the next time you open it, so it shows up wherever it belongs.
 
-Each saved query becomes a tab you can jump to with a digit. `key` is optional and defaults to the query's position in the list, so the first one is `1`, the second `2`, and so on up to `9`. Names have to be unique and can't reuse a built-in tab name (My Issues, JQL, Active Sprint, Backlog, Help).
+Each saved query becomes a tab you can jump to with a digit. `key` is optional and defaults to the query's position in the list, so the first one is `1`, the second `2`, and so on up to `9`. Names have to be unique and can't reuse a built-in tab name (My Issues, Project, JQL, Sprint, Backlog, Help).
 
 ## Install
 
@@ -119,15 +119,15 @@ On the board:
 | `gs` | sort by column |
 | `K` / `m` | issue detail with comments / raw markdown |
 | `s` | change status |
-| `e` | edit: summary, description (in your editor), append to description, priority, points, labels, parent, or status |
+| `e` | edit menu listing each field with its current value: summary, description (in your editor), append to description, priority, points, labels, parent, status |
 | `a` / `A` | assign (user picker) / assign to me |
 | `C` | comment in your editor, posted as markdown |
 | `w` | log work (`1h 30m`, `2d`, `45m`) |
-| `c` | create an issue in the current project: pick a type, then fill the template in your editor (assigned to you) |
+| `c` | create an issue: a form with every field labelled (see Writing) |
 | `gc` | create a child of the selected row: sub-task under a story or task, standard type under an epic, sibling sub-task when the row is a sub-task |
 | `d` | close via the first done-ish transition |
 | `b` / `gx` | open in browser |
-| `y` / `Y` | copy key / url |
+| `y` / `Y` | copy key / url (also in the detail view) |
 | `gb` | copy a git branch name (`pe-1472-add-rate-limit`) |
 | `r` | refresh, skipping the view cache (keeps cursor and filter) |
 | `?` / `H` | help (`j` / `k` scroll it, `q` / `Esc` / `?` close it) |
@@ -145,7 +145,8 @@ In the detail view:
 | `]` / `[` | next / previous issue in board order |
 | `L` | jump to the parent, a subtask or a linked issue |
 | `/` `n` `N` | search the issue text; next / previous match (wraps) |
-| `s` `a` `A` `e` `d` `C` `w` `y` `Y` `b` | same as on the board, acting on the issue you're reading |
+| `y` / `Y` | copy key / url |
+| `s` `a` `A` `e` `d` `C` `w` `b` | same as on the board, acting on the issue you're reading |
 | `q` / `Esc` | back: undoes `L` jumps first, then returns to the board |
 
 In pickers and prompts:
@@ -155,7 +156,8 @@ In pickers and prompts:
 | `j` / `k`, `enter` | move and pick in a picker |
 | `/` | filter a picker as you type; `enter` keeps the filter, `Esc` clears it. In the assign picker `enter` searches every assignable user on the server |
 | `enter` | submit a one-line prompt |
-| `ctrl-s` | submit a multi-line prompt (JQL editor, append description) |
+| `ctrl-s` | submit a multi-line prompt (JQL editor, append description) or a form |
+| `tab` / `shift-tab`, `↑` / `↓` | next / previous field in a form |
 | `Esc` | cancel (`q` also cancels a picker; in a prompt it's just a letter) |
 
 ### Filtering
@@ -170,21 +172,25 @@ The detail view shows the fields up top, then a Links section (parent, subtasks,
 
 Comments, full description edits and new issues all open your editor: `$VISUAL`, else `$EDITOR`, else `nvim`, else `vi`. What you write is markdown, converted to Jira's format on the way out: paragraphs, headings, bullet and numbered lists, fenced code with a language, quotes, rules, bold, italic, inline code, strikethrough and links.
 
-Creating opens a small template. The first line is the summary, the `labels:`, `points:` and `priority:` lines are optional (leave them blank to skip), and everything under `---` is the description:
+Creating opens a form where every field has a label, so nothing is guesswork:
 
 ```
-Rate limit the export endpoint
-labels: api, perf
-points: 3
-priority: High
----
-Exports hammer the DB when a big store runs them back to back.
-
-- cap at 1 per minute per store
-- return 429 with Retry-After
+╭─ New issue ─────────────────────────────────────────────────────╮
+│                                                                   │
+│    Project *      PE                                              │
+│    Type *         Task                                            │
+│ ▌  Summary *      Rate limit the export endpoint                  │
+│    Description    Exports hammer the DB when a big store runs…    │
+│                   - cap at 1 per minute per store                 │
+│    Priority       project default                                 │
+│    Labels         comma or space separated                        │
+│    Assignee       me                                              │
+│    Parent         epic or parent key                              │
+│                                                                   │
+╰─  one-line title   Tab / ↑↓ field   Ctrl-s create   Esc cancel ─╯
 ```
 
-If the create fails (a typo in a field line, or Jira rejects it), the next `c` reopens your draft so nothing is lost.
+It opens on Summary, and you type straight into text fields. `Tab` or the arrows move between fields. `Enter` on Type or Priority opens a picker of what Jira allows for that project, `Enter` on Assignee flips between you and unassigned, and `Enter` on Description opens your editor for the markdown body (paste links to docs and repos as-is; bare URLs become links). `Ctrl-s` creates it. Starred fields are required and the form names the one you missed. If Jira rejects the create, the form comes back with Jira's error and everything you typed. `Esc` on a form you've typed into asks once before throwing it away. On success the cursor lands on the new row and `y` copies its key.
 
 Editing the full description opens it as markdown. Descriptions holding things markdown can't carry back (tables, images, mentions, panels, colored text, nested lists and so on) are refused rather than silently flattened; use "Append description" on those. Points go to the project's `story_point_field`, so set that under `projects` if your Jira keeps story points in a different custom field than the default.
 
@@ -201,7 +207,7 @@ lua/jira_tui/
   ansi.lua     SGR colors, utf8-aware width/truncate
   render.lua   columns, issue rows, tab bar, detail text
   term.lua     raw mode, key + mouse decoding
-  ui.lua       modals: input, picker, detail pager, $EDITOR handoff, help
+  ui.lua       modals: input, picker, form, detail pager, $EDITOR handoff, help
   tui.lua      board runtime: state, draw loop, keys, background loads
   state.lua    persisted JQL history + last project
   init.lua     arg parsing + wiring

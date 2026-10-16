@@ -483,11 +483,12 @@ function M.run(opts)
     return issue.fields.description or false
   end
 
+  -- { label, handler, current value shown beside the label }
   local EDITS = {
     { "Summary", function(n)
       local s = ui.input("Summary: " .. n.key, { value = n.summary or "", width = 76 })
       if s and s ~= "" and s ~= n.summary then update_fields(n, { summary = s }, "summary") end
-    end },
+    end, function(n) return n.summary end },
     { "Description", function(n)
       local adf = current_description(n)
       if adf == nil then return end
@@ -498,7 +499,7 @@ function M.run(opts)
       local txt = ui.edit_external(adf and (model.adf_to_markdown(adf):gsub("%s+$", "")) or "", ".md")
       if not txt then st.message = n.key .. ": description unchanged"; return end
       update_fields(n, { description = md.to_adf(txt) }, "description")
-    end },
+    end, function() return "opens $EDITOR" end },
     { "Append description", function(n)
       local txt = ui.input("Append description: " .. n.key, { multiline = true })
       if not txt or txt == "" then return end
@@ -515,7 +516,7 @@ function M.run(opts)
       local p = ui.select("Priority: " .. n.key .. "  (" .. (n.priority or "?") .. ")", ps,
         { format = function(x) return x.name or "?" end })
       if p then update_fields(n, { priority = { id = p.id } }, "priority") end
-    end },
+    end, function(n) return n.priority end },
     { "Points", function(n)
       local s = ui.input("Points: " .. n.key, { value = n.story_points and tostring(n.story_points) or "", width = 40 })
       if not s or s == "" then return end
@@ -523,25 +524,26 @@ function M.run(opts)
       if not pts then st.message = perr; return end
       local spf = config.get_project_config(n.key:match("^(.-)%-%d+$")).story_point_field
       update_fields(n, { [spf] = pts }, "points")
-    end },
+    end, function(n) return n.story_points and tostring(n.story_points) end },
     { "Labels", function(n)
       local cur = type(n.labels) == "table" and table.concat(n.labels, ", ") or ""
       local s = ui.input("Labels: " .. n.key .. "  (comma or space separated)", { value = cur, width = 76 })
       if s and s ~= cur then update_fields(n, { labels = model.split_labels(s) }, "labels") end
-    end },
+    end, function(n) return type(n.labels) == "table" and table.concat(n.labels, ", ") end },
     { "Parent", function(n)
       local s = ui.input("Parent key: " .. n.key, { value = n.parent or "", width = 40 })
       if not s or s == "" then return end
       local key = model.valid_key(s)
       if not key then st.message = "not an issue key: " .. s; return end
       if key ~= n.parent then update_fields(n, { parent = { key = key } }, "parent") end
-    end },
-    { "Change status", function(n) change_status(n) end },
+    end, function(n) return n.parent end },
+    { "Status", function(n) change_status(n) end, function(n) return n.status end },
   }
 
   local function edit_issue(n)
     if not n then return end
-    local choice = ui.select("Edit: " .. n.key, EDITS, { format = function(e) return e[1] end })
+    local choice = ui.select("Edit: " .. n.key, EDITS, { format = function(e)
+      return ansi.pad(e[1], 20) .. (e[3] and e[3](n) or "") end })
     if choice then choice[2](n) end
   end
 
@@ -568,7 +570,27 @@ function M.run(opts)
     st.message, st.message_ok = "commented on " .. n.key, true
   end
 
-  -- a failed create keeps the text as the next template so nothing typed is lost
+  local CREATE_FIELDS = {
+    { name = "project", label = "Project", kind = "text", required = true, hint = "project key, e.g. PE" },
+    { name = "type", label = "Type", kind = "pick", required = true },
+    { name = "summary", label = "Summary", kind = "text", required = true, hint = "one-line title" },
+    { name = "description", label = "Description", kind = "editor",
+      hint = "⏎ to write markdown in $EDITOR (links to docs and repos welcome)" },
+    { name = "priority", label = "Priority", kind = "pick", hint = "project default" },
+    { name = "labels", label = "Labels", kind = "text", hint = "comma or space separated" },
+    { name = "assignee", label = "Assignee", kind = "toggle", options = { "me", "unassigned" } },
+    { name = "parent", label = "Parent", kind = "text", hint = "epic or parent key" },
+  }
+
+  local function type_fits(t, want_sub) return (t.subtask == true) == (want_sub == true) end
+  local function default_type(types, want_sub)
+    for _, name in ipairs({ "Task", "Story" }) do
+      for _, t in ipairs(types) do if t.name == name and type_fits(t, want_sub) then return t end end
+    end
+    for _, t in ipairs(types) do if type_fits(t, want_sub) then return t end end
+  end
+
+  -- a rejected create reopens the form with the error and everything typed
   local function create_flow(project, parent)
     st.message = "loading issue types for " .. project .. "…"; draw()
     local types, terr = api.get_create_types(project)
@@ -582,31 +604,72 @@ function M.run(opts)
       if not parent_key then st.message = parent.key .. ": sub-task without a parent"; return end
       want_sub = parent.type ~= "Epic"
     end
-    local pickable = {}
-    for _, t in ipairs(types) do
-      if (t.subtask == true) == (want_sub == true) then pickable[#pickable + 1] = t end
-    end
-    if #pickable == 0 then st.message = project .. ": no matching issue types"; return end
-    draw()
-    local itype = ui.select(parent_key and ("New child of " .. parent_key) or ("New issue in " .. project),
-      pickable, { format = function(t) return t.name end })
-    if not itype then return end
-    local text = ui.edit_external(st.create_draft or model.CREATE_TEMPLATE, ".md")
-    if not text then st.message = "create cancelled"; return end
-    local f, perr = model.parse_create(text)
-    if not f then st.create_draft = text; st.message = "create: " .. perr .. " (c reopens your draft)"; return end
-    st.message = "creating " .. itype.name .. " in " .. project .. "…"; draw()
-    local res, cerr = api.create_issue(project, f.summary, itype, {
-      description = f.description, labels = f.labels, points = f.points, priority = f.priority,
-      parent = parent_key, assignee_account_id = (api.myself() or {}).accountId,
-    })
-    if cerr then st.create_draft = text; st.message = "create failed: " .. cerr .. " (c reopens your draft)"; return end
-    st.create_draft = nil
-    local new_key = type(res) == "table" and res.key
-    if not new_key then st.message, st.message_ok = "created issue", true; return end
-    refresh_row(new_key, "created " .. new_key, true)
-  end
+    local first = default_type(types, want_sub)
+    if not first then st.message = project .. ": no matching issue types"; return end
+    local v = { project = project, type = first.name, summary = "", description = "", priority = "", labels = "",
+      assignee = "me", parent = parent_key or "" }
 
+    local function pick(f, vals)
+      if f.name == "type" then
+        local ts, err = api.get_create_types(vals.project:upper())
+        if not ts then return nil, vals.project .. ": " .. err end
+        local fits = {}
+        for _, t in ipairs(ts) do if type_fits(t, want_sub) then fits[#fits + 1] = t end end
+        local t = ui.select("Type (" .. vals.project:upper() .. ")", fits, { format = function(x) return x.name end })
+        return t and t.name
+      end
+      local ps, perr = api.get_priorities()
+      if not ps then return nil, "priorities: " .. perr end
+      local items = { { name = "" } }
+      for _, x in ipairs(ps) do items[#items + 1] = x end
+      local p = ui.select("Priority", items, { format = function(x) return x.name == "" and "(project default)" or x.name end })
+      return p and p.name
+    end
+
+    local title = parent_key and ("New child of " .. parent_key) or "New issue"
+    local err, focus
+    while true do
+      draw()
+      if not ui.form(title, CREATE_FIELDS, v, { pick = pick, error = err, focus = focus, submit = "create",
+        backdrop = draw }) then return end
+      v.project = v.project:upper()
+      local ts, terr2 = api.get_create_types(v.project)
+      local itype
+      for _, t in ipairs(ts or {}) do if t.name == v.type and type_fits(t, want_sub) then itype = t end end
+      local pkey = v.parent ~= "" and model.valid_key(v.parent)
+      local me, merr
+      if v.assignee == "me" then me, merr = api.myself() end
+      if not ts then err, focus = v.project .. ": " .. terr2, "project"
+      elseif not itype then
+        local d = default_type(ts, want_sub)
+        err, focus = v.project .. " has no " .. v.type .. " type" .. (d and ("; switched to " .. d.name) or ""), "type"
+        v.type = d and d.name or ""
+      elseif v.parent ~= "" and not pkey then err, focus = "Parent: not an issue key: " .. v.parent, "parent"
+      elseif v.assignee == "me" and not me then err, focus = "Assignee: can't resolve you: " .. tostring(merr), "assignee"
+      else
+        st.message = "creating " .. itype.name .. " in " .. v.project .. "…"; draw()
+        local res, cerr = api.create_issue(v.project, v.summary, itype, {
+          description = v.description ~= "" and v.description or nil, labels = model.split_labels(v.labels),
+          priority = v.priority ~= "" and v.priority or nil, parent = pkey or nil,
+          assignee_account_id = me and me.accountId,
+        })
+        st.message = nil
+        if not cerr then
+          -- other views refetch on their next visit, so the new issue shows wherever it belongs
+          for k, e in pairs(st.cache) do if e ~= st.entry then st.cache[k] = nil end end
+          local new_key = type(res) == "table" and res.key
+          if not new_key then st.message, st.message_ok = "created issue", true; return end
+          refresh_row(new_key, "created " .. new_key .. "  ·  y copies the key", true)
+          return
+        end
+        err, focus = "create failed: " .. cerr, "summary"
+        -- jira names the rejected field ("priority: ..."), so land the cursor on it
+        for _, f in ipairs(CREATE_FIELDS) do
+          if cerr:lower():find(f.name .. ":", 1, true) then focus = f.name end
+        end
+      end
+    end
+  end
 
   local function detail_view(n, d, mode)
     local issue, comments = d.issue, d.comments
@@ -692,7 +755,8 @@ function M.run(opts)
       st.in_detail = true
       local nav = ui.detail(title, text, {
         alt = alt, actions = acts,
-        hint = (has_atts and "o attachment   " or "") .. "s a A e d C w y Y b   L links   ]/[ issue",
+        hint = (has_atts and "o attachment   " or "")
+          .. "y copy key   Y url   s status   e edit   a assign   C comment   L links   ]/[ issue",
         reload = function()
           local d2 = fetch_detail(node.key)
           if not d2 then return end

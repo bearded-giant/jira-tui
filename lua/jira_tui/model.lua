@@ -86,8 +86,6 @@ function M.split_labels(s)
   return out
 end
 
-local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
-
 function M.parse_points(s)
   local n = tonumber(s)
   if not n or n < 0 then return nil, "points must be a number >= 0" end
@@ -155,36 +153,6 @@ function M.adf_lossy(node, in_list)
     if M.adf_lossy(child, in_list or list) then return true end
   end
   return false
-end
-
-M.CREATE_TEMPLATE = "\nlabels: \npoints: \npriority: \n---\n"
-local CREATE_FIELDS = { labels = true, points = true, priority = true }
-
-function M.parse_create(text)
-  local lines = {}
-  for l in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = l end
-  local out = { summary = trim(lines[1] or "") }
-  if out.summary == "" then return nil, "summary (first line) is empty" end
-  local sep
-  for i = 2, #lines do if lines[i]:match("^%-%-%-%s*$") then sep = i; break end end
-  for i = 2, (sep or 1) - 1 do
-    if lines[i]:match("%S") then
-      local k, v = lines[i]:match("^%s*(%a+):%s*(.-)%s*$")
-      k = k and k:lower()
-      if not k or not CREATE_FIELDS[k] then return nil, "unknown field line: " .. trim(lines[i]) end
-      if v ~= "" then
-        if k == "labels" then out.labels = M.split_labels(v)
-        elseif k == "points" then
-          local perr
-          out.points, perr = M.parse_points(v)
-          if not out.points then return nil, perr end
-        else out.priority = v end
-      end
-    end
-  end
-  local body = trim(table.concat(lines, "\n", (sep or 1) + 1))
-  out.description = body ~= "" and body or nil
-  return out
 end
 
 local FILTER_FIELDS = { s = "status", t = "type", p = "priority" }
