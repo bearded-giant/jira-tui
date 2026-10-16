@@ -304,6 +304,7 @@ function M.create_issue(project_key, summary, issue_type, opts)
   return M.request("POST", "/rest/api/3/issue", { fields = fields })
 end
 
+-- shortcut: first 50 scrum boards only; page like get_sprints if a project ever has more
 function M.get_boards(project)
   local res, err = M.request("GET", "/rest/agile/1.0/board?type=scrum&maxResults=50&projectKeyOrId="
     .. M.urlencode(project), nil)
