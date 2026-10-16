@@ -1343,6 +1343,13 @@ do
     return { key = "PE-77" }
   end } })
   eq(#calls(r.api, "create_issue"), 2, "c: esc on a form reopened after an error asks first instead of discarding")
+  -- a filter that would hide the new row is dropped so the cursor can land on it
+  r = created(keyseq("/", "alpha", "enter", "c", "x", "ctrl-s"))
+  local after = r.out:sub((r.out:find("New issue", 1, true)))
+  ok(after:find("(5)", 1, true), "c: filter hiding the new row cleared")
+  r = created(keyseq("/", "child", "enter", "c", "x", "ctrl-s"))
+  after = r.out:sub((r.out:find("New issue", 1, true)))
+  ok(after:find("(2)", 1, true) and not after:find("(5)", 1, true), "c: filter that shows the new row kept")
   -- other cached views refetch after a create, so the new issue isn't stale-cached away
   r, cs = created(keyseq("P", "M", "c", "x", "ctrl-s", "P"), { cache_ttl = 300 })
   local views = {}

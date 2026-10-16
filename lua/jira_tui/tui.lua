@@ -671,6 +671,9 @@ function M.run(opts)
           local new_key = type(res) == "table" and res.key
           if not new_key then st.message, st.message_ok = "created issue", true; return end
           refresh_row(new_key, "created " .. new_key .. "  ·  y copies the key", true)
+          -- a filter typed before the create would hide the row just made
+          local n = cur_node()
+          if st.filter and not (n and n.key == new_key) then st.filter = nil; rebuild(new_key) end
           return
         end
         err, focus = "create failed: " .. cerr, "summary"
