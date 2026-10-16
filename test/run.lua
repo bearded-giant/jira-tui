@@ -1355,6 +1355,11 @@ do
   local views = {}
   for _, l in ipairs(r.loads) do views[#views + 1] = l.view end
   eq(table.concat(views, ","), "My Issues,Project,Project", "c: cached Project view refetched after create")
+  -- a refetch inside the search-lag window after a create is shown but not cached as fresh
+  r = created(keyseq("P", "M", "c", "x", "ctrl-s", "P", "M", "P"), { cache_ttl = 300 })
+  views = {}
+  for _, l in ipairs(r.loads) do views[#views + 1] = l.view end
+  eq(table.concat(views, ","), "My Issues,Project,Project,Project", "c: rows fetched right after a create aren't trusted")
 end
 
 -- ---- project view + sprint picker ----

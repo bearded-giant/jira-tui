@@ -112,7 +112,9 @@ function M.run(opts)
   local function finish(job, issues, err, truncated)
     st.loading = nil
     if err then st.message = err; return false, err end
-    local entry = { raw = issues or {}, truncated = truncated, at = now() }
+    -- search lags writes, so rows landing just after a create may predate it: show them, don't trust them
+    local entry = { raw = issues or {}, truncated = truncated, at = now(),
+      suspect = st.created_at and now() - st.created_at < 10 or nil }
     st.cache[job.ckey] = entry
     show(job, entry)
     return true
@@ -141,7 +143,9 @@ function M.run(opts)
     cancel_job()
     local job = { view = view, filter = filter, ckey = cache_key(view), project = st.project }
     local entry = st.cache[job.ckey]
-    if not force and model.cache_fresh(entry, opts.cache_ttl, now()) then show(job, entry); return true end
+    if not force and entry and not entry.suspect and model.cache_fresh(entry, opts.cache_ttl, now()) then
+      show(job, entry); return true
+    end
     st.loading = "loading " .. render.view_title(view) .. "…"
     if sync then
       if draw then draw() end
@@ -668,6 +672,7 @@ function M.run(opts)
         if not cerr then
           -- other views refetch on their next visit, so the new issue shows wherever it belongs
           for k, e in pairs(st.cache) do if e ~= st.entry then st.cache[k] = nil end end
+          st.created_at = now()
           local new_key = type(res) == "table" and res.key
           if not new_key then st.message, st.message_ok = "created issue", true; return end
           refresh_row(new_key, "created " .. new_key .. "  ·  y copies the key", true)
