@@ -90,7 +90,7 @@ jira-tui --help           # flags + keys
 
 A project key is only needed for the Project, Sprint and Backlog views and for creating issues. With no arguments it opens My Issues, and you move around from there, no project is ever forced on startup. Inside the TUI, `P`, `S`, `B` and `c` reuse the last project you used (from an argument or the `p` prompt), so you rarely need to retype it.
 
-Nothing outside the Sprint tab filters by sprint. The Project view (`P`) is every open issue in the project, newest activity first, so an issue you create without a sprint never drops out of sight; `/@me` narrows it to yours. Sprints are their own path: `S` lists the project's active and future sprints from its scrum boards, with "Past sprints…" and "Every open sprint" at the bottom, and picking one lists its issues. A project with no scrum board just says so.
+Nothing outside the Sprint and Backlog tabs filters by sprint. The Project view (`P`) is every open issue in the project, newest activity first, so an issue you create without a sprint never drops out of sight; `/@me` narrows it to yours. Sprints are their own path: `S` lists the project's active and future sprints from its scrum boards, with "Past sprints…" and "Every open sprint" at the bottom, and picking one lists its issues. A project with no scrum board just says so.
 
 ### Keys
 
