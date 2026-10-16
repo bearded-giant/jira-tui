@@ -548,7 +548,7 @@ do
   ok(model.matches(mine, "@me", "acc-1"), "filter @me matches the current user's id")
   ok(not model.matches(mine, "@me", "acc-2"), "filter @me misses another user")
   ok(not model.matches({ key = "X-3", assignee = "Unassigned" }, "@me", "acc-1"), "filter @me skips unassigned")
-  ok(model.matches({ key = "X-4", assignee = "Mel" }, "@me"), "filter @me without a resolved user falls back to name")
+  ok(not model.matches({ key = "X-4", assignee = "James" }, "@me"), "filter @me without a resolved user matches nothing")
 
   eq(model.branch_name("PE-1472", "Add rate limit"), "pe-1472-add-rate-limit", "branch name basic")
   eq(model.branch_name("REF-9", "Fix: weird (chars) & stuff!!"), "ref-9-fix-weird-chars-stuff", "branch name strips punctuation")
@@ -1434,6 +1434,8 @@ do
     { key = "PE-2", summary = "b", assignee = "Ann", assignee_account_id = "ann", status = "To Do" } }
   r = run_tui(keyseq("/", "@me", "enter"), { issues = MINE, api = { myself = function() return { accountId = "me1" } end } })
   ok(r.out:find("(1)", 1, true), "@me narrows to the current user's issues")
+  r = run_tui(keyseq("/", "@me", "enter"), { issues = MINE, api = { myself = function() return nil, "offline" end } })
+  ok(r.out:find("(0)", 1, true) and r.out:find("@me: can't resolve you: offline", 1, true), "@me unresolved: says why, matches nothing")
 
   -- an empty board says when resolved issues are hiding
   r = run_tui(keyseq(), { issues = { { key = "PE-1", summary = "x", status = "Done", status_category = "Done" } } })

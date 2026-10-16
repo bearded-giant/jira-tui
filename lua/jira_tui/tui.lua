@@ -72,7 +72,11 @@ function M.run(opts)
   -- st.filter applies here, client-side over fetched rows -- no refetch per keystroke.
   local function rebuild(keep_key)
     local issues = {}
-    local me = st.filter and st.filter:lower():find("@me", 1, true) and api.myself()
+    local me, merr
+    if st.filter and st.filter:lower():find("@me", 1, true) then
+      me, merr = api.myself()
+      if not me then st.message = "@me: can't resolve you: " .. tostring(merr) end
+    end
     st.done_hidden = 0
     for _, iss in ipairs(st.raw) do
       if st.hide_resolved and iss.status_category == "Done" then st.done_hidden = st.done_hidden + 1

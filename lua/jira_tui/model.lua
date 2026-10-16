@@ -156,14 +156,14 @@ function M.adf_lossy(node, in_list)
 end
 
 local FILTER_FIELDS = { s = "status", t = "type", p = "priority" }
--- me_id: current user's accountId, so @me matches by id rather than display name
+-- me_id: current user's accountId, so @me matches by id rather than display name (nil: @me matches nothing)
 function M.matches(issue, filter, me_id)
   if not filter or filter == "" then return true end
   local function has(v, q) return type(v) == "string" and v:lower():find(q, 1, true) ~= nil end
   for tok in filter:lower():gmatch("%S+") do
     local pre, q = tok:match("^(%a):(.+)$")
     local hit
-    if tok == "@me" and me_id then hit = issue.assignee_account_id == me_id
+    if tok == "@me" then hit = me_id ~= nil and issue.assignee_account_id == me_id
     elseif tok:sub(1, 1) == "@" and #tok > 1 then hit = has(issue.assignee, tok:sub(2))
     elseif pre and FILTER_FIELDS[pre] then hit = has(issue[FILTER_FIELDS[pre]], q)
     elseif pre == "l" then
