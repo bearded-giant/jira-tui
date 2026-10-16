@@ -194,9 +194,8 @@ function M.run(opts)
     local frame = {} -- frame[r] = full row string (relative row 0..bh-1)
     local tab = st.help and "Help" or render.view_label(st.view)
     local module = st.help and "Help" or render.view_title(st.view)
-    local proj = st.project
-      or (st.view == "My Issues" and #st.my_projects > 0 and table.concat(st.my_projects, ",") or nil)
-      or "all"
+    local proj = st.view == "My Issues" and (#st.my_projects > 0 and table.concat(st.my_projects, ",") or "all")
+      or st.project or "all"
     local title = module .. "   - Project: " .. proj .. "   (" .. st.count .. (st.truncated and "+" or "") .. ")"
     frame[0] = render.box_top(bw, title)
     frame[1] = interior("")

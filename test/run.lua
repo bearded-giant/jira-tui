@@ -719,7 +719,7 @@ local function run_tui(keys, opts)
     end,
     project = opts.project or "PE",
     initial_view = opts.view or "My Issues",
-    my_projects = {},
+    my_projects = opts.my_projects or {},
     hidden_tabs = opts.hidden_tabs or {},
     queries = opts.queries,
     cache_ttl = opts.cache_ttl,
@@ -738,6 +738,11 @@ do
   eq(#r.loads, 1, "harness: initial load once")
   ok(r.out:find("alpha root", 1, true), "harness: board rows drawn")
   ok(r.out:find("(4)", 1, true), "harness: title count = 4 issues")
+  ok(r.out:find("My Issues   - Project: all", 1, true), "title: My Issues isn't scoped by the current project")
+  r = run_tui(keyseq(), { my_projects = { "SEC", "PE" } })
+  ok(r.out:find("My Issues   - Project: SEC,PE", 1, true), "title: My Issues names its configured projects")
+  r = run_tui(keyseq(), { view = "Project" })
+  ok(r.out:find("Open issues   - Project: PE", 1, true), "title: project views name the project")
 
   r = run_tui(keyseq("/"))
   ok(not r.ok and tostring(r.err):find("feed exhausted"), "harness: modal waiting on input fails loudly")
