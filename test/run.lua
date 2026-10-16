@@ -190,6 +190,8 @@ do
   eq(l.view, "JQL:status = X", "--jql flag carries query")
   ok(init.resolve_launch({ "-h" }, nil).help, "-h -> help")
   ok(init.resolve_launch({ "REF", "--help" }, nil).help, "--help anywhere -> help")
+  eq(init.resolve_launch({ "pe x" }, nil).error, "not a project key: PE X", "malformed project arg refused at launch")
+  eq(init.resolve_launch({}, "PE X").project, nil, "malformed saved last_project ignored")
 end
 
 -- ---- jql history dedup/cap (state) ----

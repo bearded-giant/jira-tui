@@ -70,6 +70,8 @@ function M.resolve_launch(argv, last_project)
     end
     i = i + 1
   end
+  if project and not sprint.valid_project(project) then return { error = "not a project key: " .. project } end
+  if last_project and not sprint.valid_project(last_project) then last_project = nil end
   if not view then view = project and "Project" or "My Issues" end
   return { project = project or last_project, view = view }
 end
@@ -78,6 +80,7 @@ function M.main(argv)
   state.load()
   local launch = M.resolve_launch(argv, state.data.last_project)
   if launch.help then usage(); return 0 end
+  if launch.error then io.stderr:write("jira-tui: " .. launch.error .. "\n"); return 1 end
 
   local ok, err = config.load()
   if ok then ok, err = render.set_columns(config.options.columns) end
