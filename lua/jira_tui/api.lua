@@ -304,6 +304,28 @@ function M.create_issue(project_key, summary, issue_type, opts)
   return M.request("POST", "/rest/api/3/issue", { fields = fields })
 end
 
+function M.get_boards(project)
+  local res, err = M.request("GET", "/rest/agile/1.0/board?type=scrum&maxResults=50&projectKeyOrId="
+    .. M.urlencode(project), nil)
+  if err or type(res) ~= "table" or type(res.values) ~= "table" then return nil, err or "no boards" end
+  return res.values
+end
+
+-- shortcut: stops at 10 pages (500 sprints), and jira lists oldest first, so a board past that
+-- loses its newest closed sprints; page from the end if a board ever gets there
+function M.get_sprints(board_id, state)
+  local out, start = {}, 0
+  for _ = 1, 10 do
+    local res, err = M.request("GET", "/rest/agile/1.0/board/" .. board_id .. "/sprint?state=" .. state
+      .. "&maxResults=50&startAt=" .. start, nil)
+    if err or type(res) ~= "table" or type(res.values) ~= "table" then return nil, err or "no sprints" end
+    for _, sp in ipairs(res.values) do out[#out + 1] = sp end
+    if res.isLast ~= false or #res.values == 0 then break end
+    start = start + #res.values
+  end
+  return out
+end
+
 function M.add_worklog(issue_key, time_spent)
   return M.request("POST", "/rest/api/3/issue/" .. issue_key .. "/worklog", { timeSpent = time_spent })
 end

@@ -9,22 +9,23 @@ M.options = {
   jira = { base = "", email = "", token = "", limit = 500 },
   projects = {},
   my_issues_projects = {},
-  hidden_tabs = {}, -- e.g. { "Active Sprint", "Backlog" } to declutter
+  hidden_tabs = {}, -- e.g. { "Sprint", "Backlog" } to declutter
   queries = {},
   cache_ttl = 300, -- seconds a fetched view is reused on tab switch; 0 disables
   refresh_interval = 300, -- seconds idle before the current view reloads itself; 0 disables
 }
 
-local BUILTIN_VIEWS = { ["My Issues"] = true, JQL = true, ["Active Sprint"] = true, Backlog = true, Help = true }
+local BUILTIN_VIEWS = { ["My Issues"] = true, Project = true, JQL = true, Sprint = true, ["Active Sprint"] = true,
+  Backlog = true, Help = true }
 
--- the name doubles as the view id, so it can't shadow a built-in view or the "JQL:" prefix
+-- the name doubles as the view id, so it can't shadow a built-in view or the "JQL:" / "Sprint:" prefixes
 function M.parse_queries(qs)
   local out, names, keys = {}, {}, {}
   for i, q in ipairs(qs or {}) do
     if type(q) ~= "table" or type(q.name) ~= "string" or q.name == "" or type(q.jql) ~= "string" or q.jql == "" then
       return nil, "queries[" .. i .. "] needs a name and a jql string"
     end
-    if BUILTIN_VIEWS[q.name] or q.name:sub(1, 4) == "JQL:" or names[q.name] then
+    if BUILTIN_VIEWS[q.name] or q.name:sub(1, 4) == "JQL:" or q.name:sub(1, 7) == "Sprint:" or names[q.name] then
       return nil, "queries: name '" .. q.name .. "' is already taken"
     end
     local key = q.key and tostring(q.key) or (i <= 9 and tostring(i) or nil)

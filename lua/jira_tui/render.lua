@@ -69,21 +69,26 @@ function M.status_width(rows)
   return math.max(10, math.min(22, w + 2))
 end
 
-M.TABS = { -- order + hint key, matches jim
+M.TABS = {
   { name = "My Issues", key = "M" },
+  { name = "Project", key = "P" },
   { name = "JQL", key = "J" },
-  { name = "Active Sprint", key = "S" },
+  { name = "Sprint", key = "S" },
   { name = "Backlog", key = "B" },
   { name = "Help", key = "H" },
 }
 
+-- saved queries sit after My Issues + Project. "Active Sprint" was the Sprint tab's old name.
 function M.tabs(queries, hidden)
-  local out = { M.TABS[1] }
-  for _, q in ipairs(queries or {}) do out[#out + 1] = { name = q.name, key = q.key } end
-  for i = 2, #M.TABS do
-    local t = M.TABS[i]
-    if t.name == "Help" or not (hidden and hidden[t.name]) then out[#out + 1] = t end
+  hidden = hidden or {}
+  local out = {}
+  local function add(t)
+    local hide = hidden[t.name] or (t.name == "Sprint" and hidden["Active Sprint"])
+    if t.name == "Help" or t.name == "My Issues" or not hide then out[#out + 1] = t end
   end
+  add(M.TABS[1]); add(M.TABS[2])
+  for _, q in ipairs(queries or {}) do out[#out + 1] = { name = q.name, key = q.key } end
+  for i = 3, #M.TABS do add(M.TABS[i]) end
   return out
 end
 
@@ -94,9 +99,27 @@ function M.jql_query(view)
   return nil
 end
 
--- tab label for a view: "JQL:<query>" -> "JQL", everything else as-is
+-- "Sprint:<id>:<name>" is one picked sprint; "Active Sprint" is every open sprint by jql
+function M.sprint_view(id, name) return "Sprint:" .. id .. ":" .. (name or "") end
+function M.sprint_of(view)
+  local id, name = view:match("^Sprint:(%d+):(.*)$")
+  return tonumber(id), name
+end
+
+-- tab a view lights up
 function M.view_label(view)
-  return M.jql_query(view) and "JQL" or view
+  if M.jql_query(view) then return "JQL" end
+  if view == "Active Sprint" or M.sprint_of(view) then return "Sprint" end
+  return view
+end
+
+-- board title for a view
+function M.view_title(view)
+  if M.jql_query(view) then return "JQL" end
+  local id, name = M.sprint_of(view)
+  if id then return name ~= "" and name or ("Sprint " .. id) end
+  if view == "Project" then return "Open issues" end
+  return view
 end
 
 -- top border of a rounded box, optionally with an embedded bold title

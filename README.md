@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/bearded-giant/jira-tui/actions/workflows/ci.yml)
 
-A standalone terminal UI for Jira: your issues, saved queries, sprint board, backlog and ad-hoc JQL rendered as an expandable issue tree. Read, triage, edit, create, comment and log work without leaving the terminal.
+A standalone terminal UI for Jira: your issues, a project's open issues, saved queries, sprints, backlog and ad-hoc JQL rendered as an expandable issue tree. Read, triage, edit, create, comment and log work without leaving the terminal.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ return {
   -- scope the My Issues view to these projects (empty = all projects)
   my_issues_projects = { "ABC", "DEF" },
   -- tabs to hide from the strip (My Issues never hides)
-  hidden_tabs = { "Active Sprint", "Backlog" },
+  hidden_tabs = { "Sprint", "Backlog" },
   -- saved queries, each gets its own tab after My Issues
   queries = {
     { name = "Review", jql = "status = 'In Review' AND project = ABC" },
@@ -80,14 +80,17 @@ Keep the repo where it is, the symlink points back to it; `git pull` updates the
 
 ```sh
 jira-tui                  # My Issues (no project needed)
-jira-tui REF              # active sprint for project REF
+jira-tui REF              # REF's open issues, no sprint filter
+jira-tui REF --sprint     # every open sprint in REF
 jira-tui REF --backlog    # backlog
 jira-tui --my             # issues assigned to you (scoped to saved projects)
 jira-tui REF --jql "status = 'In Progress'"
 jira-tui --help           # flags + keys
 ```
 
-A project key is only needed for the sprint and backlog views. With no arguments it opens My Issues, and you move around from there, no project is ever forced on startup. Inside the TUI, `S` and `B` reuse the last project you used (from an argument or the `p` prompt), so you rarely need to retype it.
+A project key is only needed for the Project, Sprint and Backlog views and for creating issues. With no arguments it opens My Issues, and you move around from there, no project is ever forced on startup. Inside the TUI, `P`, `S`, `B` and `c` reuse the last project you used (from an argument or the `p` prompt), so you rarely need to retype it.
+
+Nothing outside the Sprint tab filters by sprint. The Project view (`P`) is every open issue in the project, newest activity first, so an issue you create without a sprint never drops out of sight; `/@me` narrows it to yours. Sprints are their own path: `S` lists the project's active and future sprints from its scrum boards, with "Past sprints…" and "Every open sprint" at the bottom, and picking one lists its issues. A project with no scrum board just says so.
 
 ### Keys
 
@@ -102,14 +105,16 @@ On the board:
 | `space` / `tab` / `o` | expand / collapse node |
 | `t` | toggle all |
 | `M` | My Issues (assigned to you) |
+| `P` | Project: every open issue in the project, no sprint filter |
+| `p` | switch project (opens its Project view) |
 | `1`-`9` | jump to a saved query tab (see `queries` in the config) |
-| `S` / `B` | Active Sprint / Backlog |
+| `S` | sprints: pick an active, future or past sprint, then list its issues |
+| `B` | backlog |
 | `←` / `→` | cycle tabs |
-| `p` | set / change the project (for sprint + backlog) |
 | `J` | JQL picker (history, or new query; `e` edits the selected query) |
 | `gj` | new JQL query |
 | `gi` | go to an issue by key or pasted browse url; opens its detail without touching the board |
-| `/` | filter loaded rows (instant, no refetch); `BS` or `Esc` clears it |
+| `/` | filter loaded rows (instant, no refetch), `@me` for yours; `BS` or `Esc` clears it |
 | `x` | show / hide resolved |
 | `gs` | sort by column |
 | `K` / `m` | issue detail with comments / raw markdown |
@@ -155,7 +160,7 @@ In pickers and prompts:
 
 ### Filtering
 
-`/` opens a prompt; submit it empty (or press `BS` or `Esc` on the board) to clear the filter. Every word has to match. Plain words look at the summary and key; `@ann` matches the assignee, `s:review` the status, `t:bug` the type, `p:high` the priority and `l:perf` any label, all as case-insensitive substrings. So `@ann s:prog cache` is Ann's in-progress issues that mention cache. The filter runs over rows already fetched, so it's instant; on a view cut off by the fetch limit (the `+` in the title count) it only searches what was fetched.
+`/` opens a prompt; submit it empty (or press `BS` or `Esc` on the board) to clear the filter. Every word has to match. Plain words look at the summary and key; `@ann` matches the assignee, `@me` matches issues assigned to you, `s:review` the status, `t:bug` the type, `p:high` the priority and `l:perf` any label, all as case-insensitive substrings. So `@ann s:prog cache` is Ann's in-progress issues that mention cache. The filter runs over rows already fetched, so it's instant; on a view cut off by the fetch limit (the `+` in the title count) it only searches what was fetched.
 
 ### Reading an issue
 
@@ -190,8 +195,8 @@ lua/jira_tui/
   json.lua     vendored pure-lua json (zero deps)
   config.lua   env + ~/.config/jira-tui/config.lua
   api.lua      curl REST client (blocking, or background for view loads; secrets via curl -K)
-  sprint.lua   JQL queries + pagination + field mapping
-  model.lua    tree build, filters, create template, ADF -> markdown
+  sprint.lua   JQL queries, sprint listing, pagination, field mapping
+  model.lua    tree build, filters, ADF -> markdown
   md.lua       markdown -> ANSI (detail view) and markdown -> ADF (writing)
   ansi.lua     SGR colors, utf8-aware width/truncate
   render.lua   columns, issue rows, tab bar, detail text

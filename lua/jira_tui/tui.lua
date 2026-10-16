@@ -72,10 +72,11 @@ function M.run(opts)
   -- st.filter applies here, client-side over fetched rows -- no refetch per keystroke.
   local function rebuild(keep_key)
     local issues = {}
+    local me = st.filter and st.filter:lower():find("@me", 1, true) and api.myself()
+    st.done_hidden = 0
     for _, iss in ipairs(st.raw) do
-      if not (st.hide_resolved and iss.status_category == "Done") and model.matches(iss, st.filter) then
-        issues[#issues + 1] = iss
-      end
+      if st.hide_resolved and iss.status_category == "Done" then st.done_hidden = st.done_hidden + 1
+      elseif model.matches(iss, st.filter, me and me.accountId) then issues[#issues + 1] = iss end
     end
     st.count = #issues
     render.COL.status = render.status_width(st.raw)
@@ -141,7 +142,7 @@ function M.run(opts)
     local job = { view = view, filter = filter, ckey = cache_key(view), project = st.project }
     local entry = st.cache[job.ckey]
     if not force and model.cache_fresh(entry, opts.cache_ttl, now()) then show(job, entry); return true end
-    st.loading = "loading " .. render.view_label(view) .. "…"
+    st.loading = "loading " .. render.view_title(view) .. "…"
     if sync then
       if draw then draw() end
       return finish(job, opts.load(view, nil, job.project))
@@ -192,7 +193,7 @@ function M.run(opts)
 
     local frame = {} -- frame[r] = full row string (relative row 0..bh-1)
     local tab = st.help and "Help" or render.view_label(st.view)
-    local module = tab
+    local module = st.help and "Help" or render.view_title(st.view)
     local proj = st.project
       or (st.view == "My Issues" and #st.my_projects > 0 and table.concat(st.my_projects, ",") or nil)
       or "all"
@@ -222,7 +223,8 @@ function M.run(opts)
           and render.issue_line(e.node, e.depth, iw, st.scroll + i == st.cursor, e.last) or "")
       end
       if #st.flat == 0 and not st.loading then
-        frame[body_top + 1] = interior(ansi.fgtext("     (no issues)", C.overlay, ansi.ITALIC))
+        local why = (st.done_hidden or 0) > 0 and (" · " .. st.done_hidden .. " resolved hidden, x shows them") or ""
+        frame[body_top + 1] = interior(ansi.fgtext("     (no issues" .. why .. ")", C.overlay, ansi.ITALIC))
       end
     end
 
@@ -310,6 +312,38 @@ function M.run(opts)
     else
       local loaded, err = run_jql(choice)
       if not loaded then edit_jql("Edit JQL", choice, err) end
+    end
+  end
+
+  local function sprint_label(sp)
+    local dates = model.short_date(sp.startDate)
+    if dates ~= "" then dates = dates .. " → " .. model.short_date(sp.endDate) end
+    return (sp.state == "active" and "● " or "  ") .. ansi.fit(sp.name or ("Sprint " .. sp.id), 34) .. "  "
+      .. ansi.fit(sp.state or "", 7) .. "  " .. dates
+  end
+
+  -- project > sprint > issues. active + future first; past sprints load only when asked for
+  local PAST, ALL_OPEN = { label = "  Past sprints…" }, { label = "  Every open sprint" }
+  local function pick_sprint()
+    if not ensure_project() then return end
+    local state = "active,future"
+    while true do
+      st.message = "loading sprints for " .. st.project .. "…"; draw()
+      local sprints, serr, boards = sprint.list_sprints(st.project, state)
+      st.message = nil
+      if not sprints then st.message = st.project .. ": sprints: " .. serr; return end
+      if boards == 0 then st.message = st.project .. " has no scrum board, so no sprints (P lists its open issues)"; return end
+      local items = {}
+      for _, sp in ipairs(sprints) do items[#items + 1] = sp end
+      if state ~= "closed" then items[#items + 1] = PAST; items[#items + 1] = ALL_OPEN end
+      if #items == 0 then st.message = st.project .. ": no past sprints"; return end
+      draw()
+      local pick = ui.select((state == "closed" and "Past sprints: " or "Sprints: ") .. st.project, items,
+        { format = function(it) return it.label or sprint_label(it) end })
+      if not pick then return end
+      if pick == ALL_OPEN then load_view("Active Sprint", nil); return end
+      if pick ~= PAST then load_view(render.sprint_view(pick.id, pick.name), nil); return end
+      state = "closed"
     end
   end
 
@@ -727,7 +761,7 @@ function M.run(opts)
         elseif k == "ctrl-u" or k == "pgup" then st.help_scroll = math.max(0, (st.help_scroll or 0) - math.floor(st.rows / 2))
         elseif k == "g" then st.help_scroll = 0
         elseif k == "G" then st.help_scroll = math.huge
-        elseif ({ M = 1, S = 1, B = 1, J = 1, left = 1, right = 1 })[k] or st.query_keys[k] then
+        elseif ({ M = 1, P = 1, S = 1, B = 1, J = 1, left = 1, right = 1 })[k] or st.query_keys[k] then
           st.help = false; swallowed = false
         end
       end
@@ -766,15 +800,17 @@ function M.run(opts)
         toggle_all(not any); reflatten()
       elseif k == "M" then load_view("My Issues", nil)
       elseif st.query_keys[k] then load_view(st.query_keys[k], nil)
-      elseif k == "S" then if ensure_project() then load_view("Active Sprint", nil) end
+      elseif k == "P" then if ensure_project() then load_view("Project", nil) end
+      elseif k == "S" then pick_sprint()
       elseif k == "B" then if ensure_project() then load_view("Backlog", nil) end
       elseif k == "p" then
-        local p = ui.input("Project key", { value = st.project or "", width = 40 })
-        if p and p ~= "" then st.project = p:upper(); load_view("Active Sprint", nil) end
+        local p = ui.input(st.project and ("Switch project (now " .. st.project .. ")") or "Project key", { width = 44 })
+        if p and p ~= "" then st.project = p:upper(); load_view("Project", nil) end
       elseif k == "J" then pick_jql()
       elseif k == "H" or k == "?" then st.help, st.help_scroll, st.message = true, 0, nil
       elseif k == "/" then
-        local f = ui.input("Filter: words  @who  s:status  t:type  p:priority  l:label", { value = st.filter or "", width = 50 })
+        local f = ui.input("Filter: words  @who  @me  s:status  t:type  p:priority  l:label",
+          { value = st.filter or "", width = 64 })
         if f ~= nil then st.filter = f ~= "" and f or nil; rebuild(n and n.key) end
       elseif k == "bs" then
         if st.filter then st.filter = nil; rebuild(n and n.key) end
@@ -799,8 +835,9 @@ function M.run(opts)
         for i, v in ipairs(order) do if v == cur then idx = i end end
         idx = ((idx - 1 + (k == "right" and 1 or -1)) % #order) + 1
         local nv = order[idx]
-        if nv == "Active Sprint" or nv == "Backlog" then
+        if nv == "Project" or nv == "Backlog" then
           if ensure_project() then load_view(nv, nil) end
+        elseif nv == "Sprint" then pick_sprint()
         elseif nv == "JQL" then pick_jql()
         elseif nv == "Help" then st.help, st.help_scroll, st.message = true, 0, nil
         else load_view(nv, nil) end

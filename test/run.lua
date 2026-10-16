@@ -171,7 +171,7 @@ do
   eq(sprint.with_filter("project = X", ""), "project = X", "with_filter empty passthrough")
 end
 
--- ---- launch contract (README: no args -> My Issues, PROJECT -> Active Sprint) ----
+-- ---- launch contract (README: no args -> My Issues, PROJECT -> its open issues) ----
 do
   local init = require("jira_tui.init")
   local l = init.resolve_launch({}, nil)
@@ -179,7 +179,9 @@ do
   l = init.resolve_launch({}, "SEC")
   eq(l.view, "My Issues", "no args ignores last_view; still My Issues"); eq(l.project, "SEC", "last project seeds S/B")
   l = init.resolve_launch({ "ref" }, "SEC")
-  eq(l.view, "Active Sprint", "project arg forces Active Sprint"); eq(l.project, "REF", "project arg uppercased, beats last")
+  eq(l.view, "Project", "project arg opens the Project view, not a sprint"); eq(l.project, "REF", "project arg uppercased, beats last")
+  l = init.resolve_launch({ "REF", "--sprint" }, nil)
+  eq(l.view, "Active Sprint", "--sprint opens every open sprint")
   l = init.resolve_launch({ "REF", "--backlog" }, nil)
   eq(l.view, "Backlog", "--backlog flag wins")
   l = init.resolve_launch({ "--my" }, "SEC")
@@ -237,7 +239,7 @@ do
 
   local bar = plain(render.tab_bar("My Issues", render.tabs(nil, { ["Active Sprint"] = true, ["Backlog"] = true }), 100))
   ok(bar:find("My Issues") and bar:find("JQL") and bar:find("Help"), "tab bar has visible tabs")
-  ok(not bar:find("Active Sprint") and not bar:find("Backlog"), "hidden tabs dropped")
+  ok(not bar:find("Sprint") and not bar:find("Backlog"), "hidden tabs dropped (old 'Active Sprint' name hides Sprint)")
   ok(bar:find("JQL.*%s%s%s+.*Help"), "Help pushed right of JQL")
 
   local root = plain(render.issue_line({ key = "A-1", summary = "s", type = "Bug", status = "Backlog" }, 1, 120, false, true))
@@ -556,6 +558,11 @@ do
   ok(model.matches({ key = "X-1", summary = "see a:b" }, "a:b"), "filter unknown prefix = plain word")
   ok(not model.matches({ key = "X-1", summary = "s" }, "l:x"), "filter l: without labels")
   ok(not model.matches({ key = "X-1" }, "@x"), "filter @ without assignee")
+  local mine = { key = "X-2", summary = "s", assignee = "Ann Lee", assignee_account_id = "acc-1" }
+  ok(model.matches(mine, "@me", "acc-1"), "filter @me matches the current user's id")
+  ok(not model.matches(mine, "@me", "acc-2"), "filter @me misses another user")
+  ok(not model.matches({ key = "X-3", assignee = "Unassigned" }, "@me", "acc-1"), "filter @me skips unassigned")
+  ok(model.matches({ key = "X-4", assignee = "Mel" }, "@me"), "filter @me without a resolved user falls back to name")
 
   eq(model.branch_name("PE-1472", "Add rate limit"), "pe-1472-add-rate-limit", "branch name basic")
   eq(model.branch_name("REF-9", "Fix: weird (chars) & stuff!!"), "ref-9-fix-weird-chars-stuff", "branch name strips punctuation")
@@ -934,15 +941,23 @@ do
 
   local names = {}
   for _, t in ipairs(render.tabs(qs, { Backlog = true, Help = true })) do names[#names + 1] = t.name end
-  eq(table.concat(names, ","), "My Issues,Review,Bugs,Mine,JQL,Active Sprint,Help", "tabs: order, hidden dropped, Help kept")
+  eq(table.concat(names, ","), "My Issues,Project,Review,Bugs,Mine,JQL,Sprint,Help", "tabs: order, hidden dropped, Help kept")
   local bar = render.tab_bar("Bugs", render.tabs(qs), 140)
   ok(bar:find("48;2;" .. ansi.color.yellow .. ";1m Bugs (5) ", 1, true), "tabs: active query chip highlighted")
   ok(plain(bar):find("Review (1)", 1, true), "tabs: query chip shows jump key")
 
-  local log, restore = stub(sprint, { get_issues_by_jql = function() return {} end, get_my_issues = function() return {} end })
+  local log, restore = stub(sprint, { get_issues_by_jql = function() return {} end, get_my_issues = function() return {} end,
+    get_project_issues = function() return {} end, get_sprint_issues = function() return {} end })
   local load = init.make_loader("PE", {}, qs)
   load("Bugs", nil, nil)
   load("My Issues", nil, nil)
+  load("Project", nil, "OPS")
+  load(render.sprint_view(42, "OPS Sprint 3"), nil, "OPS")
+  eq((calls(log, "get_project_issues")[1] or {})[2], "OPS", "loader: Project view -> project's open issues")
+  local si = calls(log, "get_sprint_issues")[1] or {}
+  eq(si[3], 42, "loader: picked sprint -> its id"); eq(si[2], "OPS", "loader: sprint keeps the project")
+  ok(not config.parse_queries({ { name = "Project", jql = "x" } }), "queries: Project is reserved")
+  ok(not config.parse_queries({ { name = "Sprint:1:x", jql = "x" } }), "queries: Sprint: prefix is reserved")
   local jl = calls(log, "get_issues_by_jql")
   eq(#jl, 1, "loader: query view routed to jql")
   eq(jl[1] and jl[1][3], "type = Bug", "loader: query jql passed")
@@ -978,9 +993,11 @@ do
   r = run_tui(keyseq("J", "j", "enter", "M"), { state = stt })
   eq(#r.loads, 3, "cache: off without cache_ttl")
 
-  -- sprint view for another project is a different cache entry
-  r = run_tui(keyseq("S", "p", "OPS", "enter"), { cache_ttl = 300, view = "Active Sprint" })
+  -- project view for another project is a different cache entry; p lands on the Project view
+  r = run_tui(keyseq("P", "p", "OPS", "enter"), { cache_ttl = 300, view = "Project" })
   eq(#r.loads, 2, "cache: project switch refetches the same view id")
+  eq(r.loads[2] and r.loads[2].view, "Project", "p: opens the Project view")
+  eq(r.loads[2] and r.loads[2].project, "OPS", "p: for the new project")
 
   -- a row patch reaches other cached views holding that key. PE-1 sits on row 1 in the
   -- query view and row 2 in My Issues, so the second paint is a fresh row.
@@ -1284,6 +1301,78 @@ do
   ok(r.out:find("unknown field line: bogus: 1", 1, true), "c: parse error shown")
   eq(#calls(r.api, "create_issue"), 0, "c: parse error sends nothing")
   eq(drafts[2], "t\nbogus: 1\n---\n", "c: failed draft reopens on next c")
+end
+
+-- ---- project view + sprint picker ----
+do
+  local api = require("jira_tui.api")
+  local render = require("jira_tui.render")
+  eq(sprint.project_jql("PE"), "project = PE AND statusCategory != Done ORDER BY updated DESC", "project jql: open, no sprint clause")
+  eq(render.view_label(render.sprint_view(7, "S 7")), "Sprint", "sprint view lights the Sprint tab")
+  eq(render.view_label("Active Sprint"), "Sprint", "Active Sprint lights the Sprint tab")
+  eq(render.view_title(render.sprint_view(7, "PE Sprint 7")), "PE Sprint 7", "sprint view titled by name")
+  eq(render.view_title("Project"), "Open issues", "Project view title")
+  eq(render.sprint_of("Sprint:12:a:b"), 12, "sprint_of: id"); eq(select(2, render.sprint_of("Sprint:12:a:b")), "a:b", "sprint_of: name keeps colons")
+
+  local log, restore = stub(api, { request = function(_, ep)
+    if ep:find("/board?", 1, true) then return { values = { { id = 1 } } } end
+    if ep:find("startAt=0", 1, true) then return { values = { { id = 1 }, { id = 2 } }, isLast = false } end
+    return { values = { { id = 3 } }, isLast = true }
+  end })
+  eq(#api.get_boards("PE"), 1, "get_boards: values")
+  ok(log[1][3]:find("type=scrum", 1, true) and log[1][3]:find("projectKeyOrId=PE", 1, true), "get_boards: scrum boards of the project")
+  eq(#api.get_sprints(1, "closed"), 3, "get_sprints: pages until isLast")
+  ok(log[3][3]:find("startAt=2", 1, true) and log[3][3]:find("state=closed", 1, true), "get_sprints: second page starts after the first")
+  restore()
+
+  log, restore = stub(api, {
+    get_boards = function() return { { id = 1 }, { id = 2 } } end,
+    get_sprints = function(b)
+      if b == 1 then return { { id = 12, state = "future" }, { id = 10, state = "active" }, { id = 4, state = "closed" } } end
+      return { { id = 10, state = "active" }, { id = 11, state = "future" }, { id = 6, state = "closed" } }
+    end })
+  local ss, _, boards = sprint.list_sprints("PE", "active,future,closed")
+  local ids = {}
+  for _, sp in ipairs(ss) do ids[#ids + 1] = sp.id end
+  eq(table.concat(ids, ","), "10,11,12,6,4", "list_sprints: deduped, active, future, then newest closed")
+  eq(boards, 2, "list_sprints: board count")
+  restore()
+
+  local SPRINTS = { { id = 10, name = "PE Sprint 10", state = "active", startDate = "2026-10-06T00:00:00.000Z",
+    endDate = "2026-10-20T00:00:00.000Z" }, { id = 11, name = "PE Sprint 11", state = "future" } }
+  local function sprints(keys, list)
+    return run_tui(keys, { sprint = { list_sprints = list or function(_, state)
+      if state == "closed" then return { { id = 3, name = "Old one", state = "closed" } }, nil, 1 end
+      return SPRINTS, nil, 1
+    end } })
+  end
+  local r = sprints(keyseq("S", "enter"))
+  ok(r.ok, "S flow ok (" .. tostring(r.err) .. ")")
+  eq(r.loads[2] and r.loads[2].view, "Sprint:10:PE Sprint 10", "S: active sprint first, Enter lists it")
+  ok(r.out:find("PE Sprint 10   - Project: PE", 1, true), "S: board titled by sprint name")
+  ok(r.out:find("2026-10-06 → 2026-10-20", 1, true), "S: picker shows sprint dates")
+  r = sprints(keyseq("S", "j", "j", "enter", "enter"))
+  eq(r.loads[2] and r.loads[2].view, "Sprint:3:Old one", "S: past sprints load on demand")
+  eq(#calls(r.sprint, "list_sprints"), 2, "S: closed sprints fetched only when asked")
+  r = sprints(keyseq("S", "j", "j", "j", "enter"))
+  eq(r.loads[2] and r.loads[2].view, "Active Sprint", "S: every open sprint")
+  r = sprints(keyseq("S"), function() return {}, nil, 0 end)
+  ok(r.out:find("PE has no scrum board", 1, true), "S: project without sprints says so")
+  eq(#r.loads, 1, "S: nothing loaded without a board")
+  r = run_tui(keyseq("P"))
+  eq(r.loads[2] and r.loads[2].view, "Project", "P: Project view")
+  ok(r.out:find("Open issues   - Project: PE", 1, true), "P: titled Open issues")
+
+  -- @me filter resolves the current user once
+  local MINE = { { key = "PE-1", summary = "a", assignee = "Me", assignee_account_id = "me1", status = "To Do" },
+    { key = "PE-2", summary = "b", assignee = "Ann", assignee_account_id = "ann", status = "To Do" } }
+  r = run_tui(keyseq("/", "@me", "enter"), { issues = MINE, api = { myself = function() return { accountId = "me1" } end } })
+  ok(r.out:find("(1)", 1, true), "@me narrows to the current user's issues")
+
+  -- an empty board says when resolved issues are hiding
+  r = run_tui(keyseq(), { issues = { { key = "PE-1", summary = "x", status = "Done", status_category = "Done" } } })
+  ok(r.out:find("(no issues · 1 resolved hidden, x shows them)", 1, true), "empty board explains hidden resolved")
+
 end
 
 -- ---- configurable columns + status width ----
@@ -1819,7 +1908,7 @@ do
   local keys = {}
   for _, l in ipairs(ui.help_lines(116)) do keys[#keys + 1] = ansi.strip(l) end
   local txt = table.concat(keys, "\n")
-  for _, k in ipairs({ "1-9", "gc", "gi", "] / [", "/ n N", "Esc Esc", "Ctrl-c", "s a A e d C w", "y Y b", "L " }) do
+  for _, k in ipairs({ "1-9", "gc", "gi", "] / [", "/ n N", "Esc Esc", "Ctrl-c", "s a A e d C w", "y Y b", "L ", "P ", "@me" }) do
     ok(txt:find(k, 1, true), "help lists " .. k)
   end
   for _, l in ipairs(ui.help_lines(76)) do ok(ansi.width(l) <= 76, "help line fits 80 cols") end

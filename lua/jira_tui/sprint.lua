@@ -109,6 +109,10 @@ function M.sprint_jql(project, filter)
   return "project = " .. project .. " AND sprint in openSprints()" .. filter_clause(filter) .. " ORDER BY Rank ASC"
 end
 
+function M.project_jql(project, filter)
+  return "project = " .. project .. " AND statusCategory != Done" .. filter_clause(filter) .. " ORDER BY updated DESC"
+end
+
 function M.backlog_jql(project, filter)
   return "project = " .. project .. " AND (sprint is EMPTY OR sprint not in openSprints()) AND statusCategory != Done"
     .. filter_clause(filter) .. " ORDER BY Rank ASC"
@@ -136,6 +140,41 @@ function M.get_active_sprint_issues(project, filter)
   local ok, err = check_projects({ project })
   if not ok then return nil, err end
   return fetch_all(project, M.sprint_jql(project, filter))
+end
+
+function M.get_project_issues(project, filter)
+  if not project then return nil, "project key required" end
+  local ok, err = check_projects({ project })
+  if not ok then return nil, err end
+  return fetch_all(project, M.project_jql(project, filter))
+end
+
+function M.get_sprint_issues(project, sprint_id, filter)
+  return fetch_all(project, "sprint = " .. sprint_id .. filter_clause(filter) .. " ORDER BY Rank ASC")
+end
+
+local STATE_RANK = { active = 1, future = 2, closed = 3 }
+
+-- a sprint shows on every scrum board whose filter covers it, so ids dedupe across boards.
+-- third value: how many scrum boards the project has (0 = it doesn't run sprints)
+function M.list_sprints(project, state)
+  local boards, err = api.get_boards(project)
+  if not boards then return nil, err end
+  local seen, out = {}, {}
+  for _, b in ipairs(boards) do
+    local ss, serr = api.get_sprints(b.id, state)
+    if not ss then return nil, serr end
+    for _, sp in ipairs(ss) do
+      if not seen[sp.id] then seen[sp.id] = true; out[#out + 1] = sp end
+    end
+  end
+  table.sort(out, function(a, b)
+    local ra, rb = STATE_RANK[a.state] or 9, STATE_RANK[b.state] or 9
+    if ra ~= rb then return ra < rb end
+    if a.state == "closed" then return a.id > b.id end
+    return a.id < b.id
+  end)
+  return out, nil, #boards
 end
 
 function M.get_backlog_issues(project, filter)

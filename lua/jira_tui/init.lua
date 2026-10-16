@@ -18,6 +18,10 @@ function M.make_loader(default_project, my_projects, queries)
       return sprint.get_backlog_issues(project, filter)
     elseif view == "My Issues" then
       return sprint.get_my_issues(my_projects, filter)
+    elseif view == "Project" then
+      return sprint.get_project_issues(project, filter)
+    elseif render.sprint_of(view) then
+      return sprint.get_sprint_issues(project, render.sprint_of(view), filter)
     elseif render.jql_query(view) then
       return sprint.get_issues_by_jql(project, render.jql_query(view), filter)
     else -- Active Sprint
@@ -30,26 +34,28 @@ local function usage()
   io.stderr:write([[
 jira-tui — standalone terminal UI for Jira
 
-usage: jira-tui [PROJECT_KEY] [--backlog | --my | --jql "<jql>"]
+usage: jira-tui [PROJECT_KEY] [--sprint | --backlog | --my | --jql "<jql>"]
 
   no args -> opens My Issues (no project required).
-  PROJECT_KEY -> opens that project's active sprint.
+  PROJECT_KEY -> opens that project's open issues (no sprint filter).
+  --sprint -> every open sprint in PROJECT_KEY.
 
 config: ]] .. config.config_path() .. [[ (lua table) or env
   JIRA_BASE   https://your-domain.atlassian.net
   JIRA_EMAIL  you@example.com
   JIRA_TOKEN  api token (JIRA_API_TOKEN also accepted)
 
-keys: j/k move  Enter open  / filter  M mine  1-9 saved queries  p project  J jql
-      K detail  s status  e edit  a/A assign  C comment  w log work  c/gc create  d close
-      y/Y copy  gb branch  b open  gi go to issue  x hide-resolved  r refresh
+keys: j/k move  Enter open  / filter (@me = yours)  M mine  P project  p switch project
+      S sprints  B backlog  1-9 saved queries  J jql
+      c/gc create  y/Y copy key/url  K detail  s status  e edit  a/A assign  C comment
+      w log work  d close  gb branch  b open  gi go to issue  x hide-resolved  r refresh
       q back  Esc Esc quit  ? help    detail: ]/[ next/prev  L links  / search
 ]])
 end
 
 -- argv + persisted last project -> { project, view } or { help = true }.
--- view: explicit flag > project arg (Active Sprint) > My Issues. last_project only
--- seeds S/B inside the tui; it never picks the startup view (README contract).
+-- view: explicit flag > project arg (Project) > My Issues. last_project only
+-- seeds P/S/B/c inside the tui; it never picks the startup view (README contract).
 function M.resolve_launch(argv, last_project)
   local project, view
   local i = 1
@@ -57,13 +63,14 @@ function M.resolve_launch(argv, last_project)
     local a = argv[i]
     if a == "-h" or a == "--help" then return { help = true }
     elseif a == "--backlog" then view = "Backlog"
+    elseif a == "--sprint" then view = "Active Sprint"
     elseif a == "--my" then view = "My Issues"
     elseif a == "--jql" then i = i + 1; view = render.jql_view(argv[i] or "")
     elseif a:sub(1, 1) ~= "-" then project = a:upper()
     end
     i = i + 1
   end
-  if not view then view = project and "Active Sprint" or "My Issues" end
+  if not view then view = project and "Project" or "My Issues" end
   return { project = project or last_project, view = view }
 end
 

@@ -378,9 +378,10 @@ end
 -- help view content (rendered inside the board body by tui, not a modal)
 local HELP = {
   { "Views", {
-    { "M", "My Issues" }, { "1-9", "Saved query tabs (config queries)" },
-    { "S / B", "Active Sprint / Backlog" }, { "← / →", "Cycle tabs" },
-    { "p", "Set / change project" }, { "J", "JQL history picker (e edits a past query)" },
+    { "M", "My Issues" }, { "P", "Project: its open issues, no sprint filter" },
+    { "p", "Switch project (opens its Project view)" }, { "1-9", "Saved query tabs (config queries)" },
+    { "S", "Sprints: pick active, future or past, then list" }, { "B", "Backlog" },
+    { "← / →", "Cycle tabs" }, { "J", "JQL history picker (e edits a past query)" },
     { "gj", "New JQL query" }, { "r", "Refresh (skips the view cache)" },
   } },
   { "Navigation", {
@@ -388,7 +389,7 @@ local HELP = {
     { "Ctrl-d / Ctrl-u", "Half page down / up" }, { "gg / G", "Top / bottom" },
     { "⏎", "Open detail (expands a row with subtasks)" },
     { "Space / Tab / o", "Expand / collapse" }, { "t", "Toggle all" },
-    { "/", "Filter: words @who s: t: p: l: (all must match)" },
+    { "/", "Filter: words @who @me s: t: p: l: (all must match)" },
     { "BS", "Clear filter" }, { "x", "Show / hide resolved" },
     { "gs", "Sort by column" }, { "gi", "Go to issue by key or url" },
   } },
