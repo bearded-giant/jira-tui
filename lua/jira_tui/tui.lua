@@ -822,6 +822,8 @@ function M.run(opts)
       st.message_ok = false
       local armed = st.quit_armed
       st.quit_armed = false
+      local cycled = st.cycled_tab
+      st.cycled_tab = nil
       if armed and k ~= "esc" then st.message = nil end
 
       -- help is an overlay: only quit/close and tab keys get through, so data keys
@@ -906,7 +908,8 @@ function M.run(opts)
       elseif k == "left" or k == "right" then
         local order = {}
         for _, tabdef in ipairs(st.tabs) do order[#order + 1] = tabdef.name end
-        local cur = st.help and "Help" or render.view_label(st.view)
+        -- a cancelled picker tab (JQL, Sprint) leaves the view behind it, so step on from the tab itself
+        local cur = cycled or (st.help and "Help") or render.view_label(st.view)
         local idx = 1
         for i, v in ipairs(order) do if v == cur then idx = i end end
         idx = ((idx - 1 + (k == "right" and 1 or -1)) % #order) + 1
@@ -917,6 +920,7 @@ function M.run(opts)
         elseif nv == "JQL" then pick_jql()
         elseif nv == "Help" then st.help, st.help_scroll, st.message = true, 0, nil
         else load_view(nv, nil) end
+        st.cycled_tab = nv
       elseif k == "g" then
         local nk; repeat nk = term.read_key() until nk
         if nk == "g" then st.cursor = 1

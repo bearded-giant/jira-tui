@@ -1401,6 +1401,11 @@ do
   r = sprints(keyseq("S"), function() return {}, nil, 0 end)
   ok(r.out:find("PE has no scrum board", 1, true), "S: project without sprints says so")
   eq(#r.loads, 1, "S: nothing loaded without a board")
+  -- arrows step past picker tabs even when the picker is cancelled
+  r = sprints(keyseq("right", "right", "esc", "right", "esc", "right"))
+  local seen = {}
+  for _, l in ipairs(r.loads) do seen[#seen + 1] = l.view end
+  eq(table.concat(seen, ","), "My Issues,Project,Backlog", "arrows: cancelled JQL and Sprint pickers don't trap the cycle")
   r = run_tui(keyseq("P"))
   eq(r.loads[2] and r.loads[2].view, "Project", "P: Project view")
   ok(r.out:find("Open issues   - Project: PE", 1, true), "P: titled Open issues")
