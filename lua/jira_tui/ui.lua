@@ -210,7 +210,7 @@ function M.form(title, fields, values, opts)
       lines[#lines + 1] = (on and ansi.fgtext(" ▌ ", C.sky, ansi.BOLD) or "   ") .. label .. shown
       if f.kind == "editor" and v ~= "" then
         local more, n = {}, 0
-        for l in (v .. "\n"):gmatch("(.-)\n") do n = n + 1; if n > 1 then more[#more + 1] = l end end
+        for l in (v .. "\n"):gmatch("(.-)\n") do n = n + 1; if n > 1 and l:match("%S") then more[#more + 1] = l end end
         for j = 1, math.min(#more, 4) do
           lines[#lines + 1] = string.rep(" ", lw + 3) .. ansi.fgtext(ansi.truncate(more[j], vw), C.subtext)
         end
