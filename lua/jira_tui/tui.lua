@@ -272,11 +272,18 @@ function M.run(opts)
     walk(st.roots)
   end
 
+  -- typed keys land in urls and jql, so a malformed one stops here
+  local function set_project(p)
+    if not p or p == "" then return false end
+    p = p:upper()
+    if not sprint.valid_project(p) then st.message = "not a project key: " .. p; return false end
+    st.project = p
+    return true
+  end
+
   local function ensure_project()
     if st.project then return true end
-    local p = ui.input("Project key", { value = (persist and persist.data.last_project) or "", width = 40 })
-    if p and p ~= "" then st.project = p:upper(); return true end
-    return false
+    return set_project(ui.input("Project key", { value = (persist and persist.data.last_project) or "", width = 40 }))
   end
 
   local function run_jql(q)
@@ -611,6 +618,7 @@ function M.run(opts)
 
     local function pick(f, vals)
       if f.name == "type" then
+        if not sprint.valid_project(vals.project:upper()) then return nil, "Project: not a project key: " .. vals.project end
         local ts, err = api.get_create_types(vals.project:upper())
         if not ts then return nil, vals.project .. ": " .. err end
         local fits = {}
@@ -633,7 +641,9 @@ function M.run(opts)
       if not ui.form(title, CREATE_FIELDS, v, { pick = pick, error = err, focus = focus, submit = "create",
         backdrop = draw }) then return end
       v.project = v.project:upper()
-      local ts, terr2 = api.get_create_types(v.project)
+      local ts, terr2
+      if sprint.valid_project(v.project) then ts, terr2 = api.get_create_types(v.project)
+      else terr2 = "not a project key" end
       local itype
       for _, t in ipairs(ts or {}) do if t.name == v.type and type_fits(t, want_sub) then itype = t end end
       local pkey = v.parent ~= "" and model.valid_key(v.parent)
@@ -868,8 +878,8 @@ function M.run(opts)
       elseif k == "S" then pick_sprint()
       elseif k == "B" then if ensure_project() then load_view("Backlog", nil) end
       elseif k == "p" then
-        local p = ui.input(st.project and ("Switch project (now " .. st.project .. ")") or "Project key", { width = 44 })
-        if p and p ~= "" then st.project = p:upper(); load_view("Project", nil) end
+        if set_project(ui.input(st.project and ("Switch project (now " .. st.project .. ")") or "Project key",
+          { width = 44 })) then load_view("Project", nil) end
       elseif k == "J" then pick_jql()
       elseif k == "H" or k == "?" then st.help, st.help_scroll, st.message = true, 0, nil
       elseif k == "/" then

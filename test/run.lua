@@ -982,6 +982,9 @@ do
   eq(#r.loads, 2, "cache: project switch refetches the same view id")
   eq(r.loads[2] and r.loads[2].view, "Project", "p: opens the Project view")
   eq(r.loads[2] and r.loads[2].project, "OPS", "p: for the new project")
+  r = run_tui(keyseq("p", "pe x", "enter", "r"), { view = "Project" })
+  ok(r.out:find("not a project key: PE X", 1, true), "p: malformed key refused before it reaches a url")
+  eq(r.loads[2] and r.loads[2].project, "PE", "p: refused key leaves the project alone")
 
   -- a row patch reaches other cached views holding that key. PE-1 sits on row 1 in the
   -- query view and row 2 in My Issues, so the second paint is a fresh row.
@@ -1311,6 +1314,9 @@ do
   ok(r.out:find("OPS has no Story type; switched to Task", 1, true), "c: type missing in new project explained")
   eq(cs[1] and cs[1][2], "OPS", "c: project field uppercased")
   eq(cs[1] and cs[1][4].id, "9", "c: created with the new project's type")
+  r, cs = created(keyseq("c", "x", "up", "up", "-", "ctrl-s", "esc", "esc"))
+  ok(r.out:find("PE-: not a project key", 1, true), "c: malformed project caught in the form")
+  eq(#calls(r.api, "get_create_types"), 1, "c: malformed project never sent to jira")
   -- priority picker, assignee toggle, description via $EDITOR
   r, cs = created(keyseq("c", "x", "down", "enter", "down", "enter", "j", "j", "enter", "down", "down", "enter", "ctrl-s"),
     { ui = { edit_external = function() return "see https://example.com/repo" end } })
