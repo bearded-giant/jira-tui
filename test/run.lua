@@ -1178,6 +1178,7 @@ do
   ok(okp, "select filter flow ok (" .. tostring(it) .. ")")
   eq(it, "Banana", "select filter: case-insensitive substring, first match")
   eq(idx, 2, "select filter: index into the original list")
+  local _
   _, it = pick(keyseq("/", "b", "enter", "j", "enter"), fruit)
   eq(it, "blueberry", "select filter: j moves within matches")
   _, it = pick(keyseq("/", "bx", "bs", "e", "enter", "enter"), fruit)
@@ -1786,6 +1787,7 @@ do
   ok(okd, "detail search ok (" .. tostring(derr) .. ")")
   ok(ansi.strip(at[2] or ""):find("line 40 has FOO", 1, true), "detail /: scrolls the first match to the top")
   ok(out:find("match 1/2", 1, true), "detail /: footer match count")
+  local _
   _, _, at, out = run(keyseq("/", "foo", "enter", "n", "q"))
   ok(out:find("match 2/2", 1, true), "detail n: next match")
   ok(ansi.strip(at[2] or ""):find("line 75", 1, true), "detail n: scroll clamps at the bottom")
